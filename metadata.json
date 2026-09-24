@@ -1,0 +1,6 @@
+{
+  "name": "EBS - Enterprise Business System",
+  "description": "Mfumo wa kisasa wa kusimamia biashara za Tanzania: POS, stoo, Bar Mode & shots, wateja & madeni, suppliers, gharama, wafanyakazi na Dashibodi ya Mmiliki.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">EBS — Enterprise Business System</string>
+    <string name="title_activity_main">EBS — Enterprise Business System</string>
+    <string name="package_name">tz.co.ebsbiz.app</string>
+    <string name="custom_url_scheme">tz.co.ebsbiz.app</string>
+</resources>
