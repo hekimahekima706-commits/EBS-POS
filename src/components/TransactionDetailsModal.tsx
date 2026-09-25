@@ -5,11 +5,11 @@ import { X, Video, RotateCcw, AlertTriangle, Printer } from 'lucide-react';
 
 interface TransactionDetailsModalProps {
   sale: Sale;
-  currentUser: User;
+  currentUser?: User;
   onClose: () => void;
   onPrintReceipt: (sale: Sale) => void;
-  onRefund: (saleId: string, reason: string) => void;
-  onCancel: (saleId: string, reason: string) => void;
+  onRefund?: (saleId: string, reason: string) => void;
+  onCancel?: (saleId: string, reason: string) => void;
   onViewCameraEvent?: (eventId: string) => void;
 }
 
@@ -26,7 +26,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
   const [actionType, setActionType] = useState<'refund' | 'cancel'>('refund');
   const [reason, setReason] = useState('');
 
-  const canManageSale = currentUser.canRefund || currentUser.role === 'owner' || currentUser.role === 'admin' || currentUser.role === 'manager';
+  const canManageSale = currentUser?.canRefund || currentUser?.role === 'owner' || currentUser?.role === 'admin' || currentUser?.role === 'manager';
 
   const handleConfirmAction = () => {
     if (!reason.trim()) {
@@ -34,9 +34,9 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
       return;
     }
     if (actionType === 'refund') {
-      onRefund(sale.id, reason);
+      onRefund?.(sale.id, reason);
     } else {
-      onCancel(sale.id, reason);
+      onCancel?.(sale.id, reason);
     }
     setShowRefundPrompt(false);
     onClose();
@@ -157,7 +157,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               <span>JUMLA YA RISITI:</span>
               <span className="text-emerald-600">{formatTZS(sale.total)}</span>
             </div>
-            {currentUser.canViewProfit && (
+            {currentUser?.canViewProfit && (
               <div className="flex justify-between text-slate-500 dark:text-slate-400 text-[11px] pt-1">
                 <span>Faida Iliyopatikana (Profit):</span>
                 <span className="font-bold text-teal-600">+{formatTZS(sale.profit)}</span>

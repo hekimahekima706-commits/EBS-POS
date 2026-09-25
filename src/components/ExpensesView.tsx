@@ -37,7 +37,7 @@ export const ExpensesView: React.FC = () => {
       amount: numAmount,
       description: description.trim() || 'Gharama za uendeshaji',
       date,
-      recordedBy: currentUser.name,
+      recordedBy: currentUser?.name || 'Mtumiaji',
     });
 
     setShowAddModal(false);
@@ -89,7 +89,7 @@ export const ExpensesView: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
           <div className="text-xs text-slate-500 font-semibold">Faida Halisi ya Leo (Net Profit)</div>
           <div className="text-xl font-black text-emerald-600 mt-1">
-            {currentUser.canViewProfit ? formatTZS(todayStats.netProfit) : '••••••'}
+            {currentUser?.canViewProfit ? formatTZS(todayStats.netProfit) : '••••••'}
           </div>
           <div className="text-[11px] text-slate-400 mt-0.5">Baada ya kutoa gharama za leo</div>
         </div>

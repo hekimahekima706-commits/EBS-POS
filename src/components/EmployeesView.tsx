@@ -174,12 +174,12 @@ export const EmployeesView: React.FC = () => {
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {users.map((u) => {
-              const roleInfo = ROLE_INFO[u.role];
-              const isCurrentUser = u.id === currentUser.id;
+              const roleInfo = ROLE_INFO[u?.role] || { label: u?.role || 'Staff', badgeColor: 'bg-slate-800 text-slate-300', description: '' };
+              const isCurrentUser = u?.id && currentUser?.id ? u.id === currentUser.id : false;
 
               return (
                 <div
-                  key={u.id}
+                  key={u?.id || Math.random()}
                   className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between space-y-4"
                 >
                   <div>

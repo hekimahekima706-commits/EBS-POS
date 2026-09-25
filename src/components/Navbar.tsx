@@ -277,14 +277,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
             className="flex items-center space-x-2 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition"
           >
             <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs">
-              {currentUser.name.charAt(0)}
+              {currentUser?.name ? currentUser.name.charAt(0) : 'U'}
             </div>
             <div className="hidden sm:block text-left">
               <div className="font-bold text-white leading-tight truncate max-w-[100px]">
-                {currentUser.name.split(' ')[0]}
+                {currentUser?.name ? currentUser.name.split(' ')[0] : 'Mtumiaji'}
               </div>
               <div className="text-[10px] text-emerald-400 font-bold uppercase">
-                {currentUser.role}
+                {currentUser?.role || 'Staff'}
               </div>
             </div>
             <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
@@ -293,9 +293,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
           {showUserDropdown && (
             <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
               <div className="px-3 py-2 border-b border-slate-800 mb-1">
-                <div className="text-xs font-bold text-white">{currentUser.name}</div>
+                <div className="text-xs font-bold text-white">{currentUser?.name || 'Mtumiaji'}</div>
                 <div className="text-[11px] text-slate-400">
-                  {ROLE_INFO[currentUser.role]?.label || currentUser.role}
+                  {(currentUser?.role && ROLE_INFO[currentUser.role]?.label) || currentUser?.role || 'Staff'}
                 </div>
               </div>
 
@@ -305,13 +305,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
 
               <div className="space-y-1 max-h-48 overflow-y-auto">
                 {users.map((u) => {
-                  const isCurrent = u.id === currentUser.id;
+                  const isCurrent = u?.id && currentUser?.id ? u.id === currentUser.id : false;
                   return (
                     <button
-                      key={u.id}
-                      id={`switch-user-${u.id}`}
+                      key={u?.id || Math.random()}
+                      id={u?.id ? `switch-user-${u.id}` : undefined}
                       onClick={() => {
-                        setCurrentUser(u);
+                        if (u) setCurrentUser(u);
                         setShowUserDropdown(false);
                       }}
                       className={`w-full text-left px-3 py-1.5 rounded-xl text-xs flex items-center justify-between transition ${

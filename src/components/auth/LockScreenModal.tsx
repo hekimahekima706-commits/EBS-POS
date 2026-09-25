@@ -63,7 +63,7 @@ export const LockScreenModal: React.FC = () => {
         </h2>
         <div className="mt-1 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-300">
           <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-          <span>{currentUser.name} ({currentUser.role.toUpperCase()})</span>
+          <span>{currentUser?.name || 'Mtumiaji'} ({currentUser?.role ? currentUser.role.toUpperCase() : 'STAFF'})</span>
         </div>
 
         <p className="text-xs text-slate-400 mt-3">

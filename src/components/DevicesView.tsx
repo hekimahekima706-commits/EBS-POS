@@ -82,7 +82,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
       const res = await fetch(`${baseUrl}/api/devices`, {
         headers: {
           'x-business-id': businessId,
-          'x-device-id': currentDevice.id
+          'x-device-id': currentDevice?.id || 'DEV-DEFAULT'
         }
       });
       if (res.ok) {
@@ -260,7 +260,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
   };
 
   const activeDevicesCount = devices.filter(d => !d.isRevoked && d.status === 'online').length;
-  const isOwnerOrManager = currentUser.role === 'owner' || currentUser.role === 'manager' || currentUser.role === 'admin';
+  const isOwnerOrManager = currentUser?.role === 'owner' || currentUser?.role === 'manager' || currentUser?.role === 'admin';
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-200">
@@ -488,8 +488,8 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
                 </tr>
               ) : (
                 devices.map((device) => {
-                  const isCurrent = device.id === currentDevice.id;
-                  const isRevoked = device.isRevoked;
+                  const isCurrent = device?.id && currentDevice?.id ? device.id === currentDevice.id : false;
+                  const isRevoked = device?.isRevoked;
 
                   return (
                     <tr

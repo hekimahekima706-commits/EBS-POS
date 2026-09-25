@@ -60,8 +60,12 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({ onBackToApp }) =
     return localStorage.getItem('ebs_superadmin_token') || '';
   });
   const [adminUser, setAdminUser] = useState<any>(() => {
-    const saved = localStorage.getItem('ebs_superadmin_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('ebs_superadmin_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
 
   // Login form state

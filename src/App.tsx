@@ -34,6 +34,8 @@ import {
 } from 'lucide-react';
 import { getThemeModeClass, getBackgroundClass, getFontSizeClass, COLOR_SCHEMES } from './utils/themeHelper';
 
+import { ErrorBoundary } from './components/ErrorBoundary';
+
 const MainAppContent: React.FC = () => {
   const {
     businessProfile,
@@ -50,7 +52,7 @@ const MainAppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState('pos');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isSuperAdminView, setIsSuperAdminView] = useState(
-    () => window.location.hash === '#admin' || window.location.pathname.startsWith('/admin')
+    () => typeof window !== 'undefined' && (window.location.hash === '#admin' || window.location.pathname.startsWith('/admin'))
   );
 
   // Listen for admin hash navigation (e.g. /#admin or /admin)
@@ -68,16 +70,16 @@ const MainAppContent: React.FC = () => {
 
   // Set appropriate landing view per user role upon login
   useEffect(() => {
-    if (!currentUser) return;
-    if (currentUser.role === 'cashier') {
+    if (!currentUser || !currentUser.id) return;
+    if (currentUser?.role === 'cashier') {
       setCurrentView('pos');
-    } else if (currentUser.role === 'waiter') {
+    } else if (currentUser?.role === 'waiter') {
       setCurrentView('pos');
-    } else if (currentUser.role === 'storekeeper') {
+    } else if (currentUser?.role === 'storekeeper') {
       setCurrentView('inventory');
-    } else if (currentUser.role === 'accountant') {
+    } else if (currentUser?.role === 'accountant') {
       setCurrentView('reports');
-    } else if (currentUser.role === 'owner' || currentUser.role === 'manager' || currentUser.role === 'admin') {
+    } else if (currentUser?.role === 'owner' || currentUser?.role === 'manager' || currentUser?.role === 'admin') {
       setCurrentView((prev) => (prev === 'pos' ? 'dashboard' : prev));
     }
   }, [currentUser?.id, currentUser?.role]);
@@ -121,7 +123,7 @@ const MainAppContent: React.FC = () => {
   }
 
   // 1. First-Time Business Setup Wizard (if not yet completed)
-  if (!businessProfile.setupCompleted) {
+  if (!businessProfile || !businessProfile.setupCompleted) {
     return (
       <FirstTimeSetupWizard
         onComplete={() => {
@@ -132,7 +134,7 @@ const MainAppContent: React.FC = () => {
   }
 
   // 2. Main Authentication Screen (KARIBU EBS)
-  if (!isAuthenticated) {
+  if (!isAuthenticated || !currentUser?.id) {
     return (
       <LoginView
         onLoginSuccess={() => {
@@ -283,8 +285,10 @@ const MainAppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <AppProvider>
-      <MainAppContent />
-    </AppProvider>
+    <ErrorBoundary>
+      <AppProvider>
+        <MainAppContent />
+      </AppProvider>
+    </ErrorBoundary>
   );
 }

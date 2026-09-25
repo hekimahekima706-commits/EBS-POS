@@ -44,7 +44,7 @@ export const CameraView: React.FC = () => {
   const [formIpAddress, setFormIpAddress] = useState('192.168.1.120');
   const [formRtspPort, setFormRtspPort] = useState('554');
   const [formRtspPath, setFormRtspPath] = useState('/live/ch0');
-  const [formProtocol, setFormProtocol] = useState<'rtsp' | 'hls' | 'webrtc' | 'mjpeg'>('rtsp');
+  const [formProtocol, setFormProtocol] = useState<'rtsp' | 'http' | 'onvif' | 'hls' | 'webrtc' | 'mjpeg'>('rtsp');
   const [formUsername, setFormUsername] = useState('admin');
   const [formPassword, setFormPassword] = useState('');
   const [formNotes, setFormNotes] = useState('');

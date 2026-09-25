@@ -218,7 +218,7 @@ export const InventoryView: React.FC = () => {
     return products.some((p) => isProductActive(p) && (isDemoProduct(p) || p.id.startsWith('prod-demo-') || p.id === 'prod-1' || p.id === 'prod-2' || p.id === 'prod-3'));
   }, [products]);
 
-  const isOwnerOrAdmin = currentUser.role === 'owner' || currentUser.role === 'admin';
+  const isOwnerOrAdmin = currentUser?.role === 'owner' || currentUser?.role === 'admin';
 
   const handleOpenAddModal = () => {
     const isPh = profile.mode === 'pharmacy';

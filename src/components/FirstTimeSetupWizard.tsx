@@ -146,7 +146,7 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
         aiAssistant: true,
       };
 
-      const selectedCatalog = BUSINESS_TYPES_CATALOG.find((b) => b.id === primaryType);
+      const selectedCatalog = (BUSINESS_TYPES_CATALOG || []).find((b) => b?.id === primaryType);
 
       await completeSetupWizard(
         {
@@ -260,30 +260,30 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
 
             {/* Primary Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[380px] overflow-y-auto pr-1">
-              {BUSINESS_TYPES_CATALOG.map((item) => {
-                const isSelected = primaryType === item.id;
+              {(BUSINESS_TYPES_CATALOG || []).map((item) => {
+                const isSelected = item?.id ? primaryType === item.id : false;
                 return (
                   <div
-                    key={item.id}
-                    id={`setup-mode-${item.id}`}
-                    onClick={() => setPrimaryType(item.id)}
+                    key={item?.id || item?.name || Math.random()}
+                    id={item?.id ? `setup-mode-${item.id}` : undefined}
+                    onClick={() => item?.id && setPrimaryType(item.id)}
                     className={`p-4 rounded-2xl border cursor-pointer transition-all duration-150 flex items-start space-x-3.5 ${
                       isSelected
                         ? 'bg-emerald-950/50 border-emerald-500 text-white shadow-md shadow-emerald-950'
                         : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-300'
                     }`}
                   >
-                    <span className="text-3xl p-1 bg-slate-950/60 rounded-xl">{item.emoji}</span>
+                    <span className="text-3xl p-1 bg-slate-950/60 rounded-xl">{item?.emoji || '🏢'}</span>
                     <div className="flex-1">
                       <div className="flex items-center justify-between">
-                        <div className="text-sm font-black">{item.name}</div>
+                        <div className="text-sm font-black">{item?.name || 'Aina ya Biashara'}</div>
                         {isSelected && (
                           <span className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center font-bold text-xs">
                             ✓
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-slate-400 mt-1 leading-relaxed">{item.description}</p>
+                      <p className="text-xs text-slate-400 mt-1 leading-relaxed">{item?.description || ''}</p>
                     </div>
                   </div>
                 );
@@ -296,21 +296,21 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
                 Aina za Nyongeza (Secondary Types - Hiari):
               </label>
               <div className="flex flex-wrap gap-2">
-                {BUSINESS_TYPES_CATALOG.filter((b) => b.id !== primaryType).map((item) => {
-                  const isChecked = secondaryTypes.includes(item.name);
+                {(BUSINESS_TYPES_CATALOG || []).filter((b) => b?.id && b.id !== primaryType).map((item) => {
+                  const isChecked = secondaryTypes.includes(item?.name || '');
                   return (
                     <button
-                      key={item.id}
+                      key={item?.id || item?.name || Math.random()}
                       type="button"
-                      onClick={() => toggleSecondaryType(item.name)}
+                      onClick={() => item?.name && toggleSecondaryType(item.name)}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border ${
                         isChecked
                           ? 'bg-teal-950 border-teal-500 text-teal-300'
                           : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
                       }`}
                     >
-                      <span>{item.emoji}</span>
-                      <span>{item.name}</span>
+                      <span>{item?.emoji || '🏢'}</span>
+                      <span>{item?.name}</span>
                       {isChecked && <Check className="w-3.5 h-3.5" />}
                     </button>
                   );

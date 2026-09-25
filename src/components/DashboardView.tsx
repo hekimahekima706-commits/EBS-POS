@@ -23,9 +23,9 @@ import { Sale } from '../types';
 
 interface DashboardViewProps {
   onNavigate: (view: string) => void;
-  onSelectSale: (sale: Sale) => void;
-  onOpenQuickSale: () => void;
-  onViewCameraEvent: (eventId: string) => void;
+  onSelectSale?: (sale: Sale) => void;
+  onOpenQuickSale?: () => void;
+  onViewCameraEvent?: (eventId: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -94,7 +94,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex items-center space-x-2.5 shrink-0">
             <button
               id="btn-dash-pos"
-              onClick={onOpenQuickSale}
+              onClick={onOpenQuickSale || (() => onNavigate('pos'))}
               className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/30 flex items-center gap-1.5 transition active:scale-95"
             >
               <ShoppingBag className="w-4 h-4" />
@@ -141,7 +141,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <div className="text-lg md:text-2xl font-black text-teal-600 dark:text-teal-400 mt-2">
-            {currentUser.canViewProfit ? formatTZS(todayStats.grossProfit) : '••••••'}
+            {currentUser?.canViewProfit ? formatTZS(todayStats.grossProfit) : '••••••'}
           </div>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
             Kabla ya kukata gharama za uendeshaji
@@ -160,7 +160,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {formatTZS(todayStats.expensesTotal)}
           </div>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Faida Halisi: <span className="font-bold text-slate-700 dark:text-slate-300">{currentUser.canViewProfit ? formatTZS(todayStats.netProfit) : '••••'}</span>
+            Faida Halisi: <span className="font-bold text-slate-700 dark:text-slate-300">{currentUser?.canViewProfit ? formatTZS(todayStats.netProfit) : '••••'}</span>
           </div>
         </div>
 
@@ -416,7 +416,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <tr
                   key={sale.id}
                   className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition cursor-pointer"
-                  onClick={() => onSelectSale(sale)}
+                  onClick={() => onSelectSale?.(sale)}
                 >
                   <td className="py-3 font-bold text-slate-900 dark:text-white">
                     {sale.invoiceNo}
@@ -438,7 +438,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </td>
                   <td className="py-3 text-right">
                     <div className="flex items-center justify-end space-x-1" onClick={(e) => e.stopPropagation()}>
-                      {sale.cameraEventId && (
+                      {sale.cameraEventId && onViewCameraEvent && (
                         <button
                           onClick={() => onViewCameraEvent(sale.cameraEventId!)}
                           title="Tazama Kamera CCTV ya Muamala Huu"
@@ -447,13 +447,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           <Video className="w-4 h-4" />
                         </button>
                       )}
-                      <button
-                        onClick={() => onSelectSale(sale)}
-                        title="Tazama Risiti"
-                        className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
+                      {onSelectSale && (
+                        <button
+                          onClick={() => onSelectSale(sale)}
+                          title="Tazama Risiti"
+                          className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

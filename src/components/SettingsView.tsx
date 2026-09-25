@@ -452,7 +452,7 @@ export const SettingsView: React.FC = () => {
     setShowResetDemoModal(false);
   };
 
-  const isOwnerOrAdmin = currentUser.role === 'owner' || currentUser.role === 'admin';
+  const isOwnerOrAdmin = currentUser?.role === 'owner' || currentUser?.role === 'admin';
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
@@ -799,10 +799,10 @@ export const SettingsView: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-800/80">
                     {users.map((u) => {
-                      const roleInfo = ROLE_INFO[u.role] || { label: u.role, badgeColor: 'bg-slate-800 text-slate-300', description: '' };
-                      const isCurrent = u.id === currentUser.id;
+                      const roleInfo = ROLE_INFO[u?.role] || { label: u?.role || 'Staff', badgeColor: 'bg-slate-800 text-slate-300', description: '' };
+                      const isCurrent = u?.id && currentUser?.id ? u.id === currentUser.id : false;
                       return (
-                        <tr key={u.id} className="hover:bg-slate-800/40 transition">
+                        <tr key={u?.id || Math.random()} className="hover:bg-slate-800/40 transition">
                           <td className="p-3.5">
                             <div className="font-bold text-white flex items-center gap-2">
                               <span>{u.name}</span>
@@ -1635,7 +1635,7 @@ export const SettingsView: React.FC = () => {
                     <span>Badilisha Neno Lako la Siri (My Password)</span>
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Weka neno jipya la siri kwa ajili ya akaunti yako ya sasa (<strong>@{currentUser.username}</strong>).
+                    Weka neno jipya la siri kwa ajili ya akaunti yako ya sasa (<strong>@{currentUser?.username || 'user'}</strong>).
                   </p>
                 </div>
 

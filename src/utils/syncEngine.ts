@@ -28,7 +28,10 @@ export function getLocalDeviceIdentity(defaultName?: string, defaultPlatform?: D
   try {
     const saved = localStorage.getItem(LOCAL_DEVICE_KEY);
     if (saved) {
-      return JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+      if (parsed && typeof parsed === 'object' && parsed.id) {
+        return parsed;
+      }
     }
   } catch (e) {
     console.warn('Failed reading local device identity', e);
@@ -148,7 +151,7 @@ export function enqueueOfflineTransaction(
  */
 export async function pushSyncQueueToServer(
   businessId: string = 'biz_default',
-  deviceId: string = getLocalDeviceIdentity().id,
+  deviceId: string = getLocalDeviceIdentity()?.id || 'DEV-WEB-DEFAULT',
   token?: string
 ): Promise<{
   success: boolean;

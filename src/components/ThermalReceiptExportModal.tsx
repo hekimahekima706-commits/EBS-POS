@@ -63,7 +63,7 @@ export const ThermalReceiptExportModal: React.FC<ThermalReceiptExportModalProps>
     openDrawer,
     cutPaper,
     includeQr,
-    viewMode,
+    viewMode: (viewMode === 'pharmacy' ? 'pharmacy' : 'standard') as 'standard' | 'pharmacy',
   };
 
   const rawBytes = generateEscPosReceipt(sale, profile, escPosOptions);

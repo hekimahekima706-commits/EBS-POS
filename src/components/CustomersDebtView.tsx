@@ -139,7 +139,7 @@ export const CustomersDebtView: React.FC = () => {
     const res = addCustomer({
       name: newCustName.trim(),
       phone: phoneVal.formatted || newCustPhone.trim(),
-      customerType: newCustCategory,
+      customerType: (newCustCategory === 'wholesale' || newCustCategory === 'vip' || newCustCategory === 'regular' ? newCustCategory : 'individual') as 'individual' | 'wholesale' | 'vip' | 'regular',
       category: newCustCategory,
       creditLimit: parseFloat(newCustCreditLimit) || 100000,
       mkoa: newCustMkoa,
@@ -724,13 +724,13 @@ export const CustomersDebtView: React.FC = () => {
             {/* Customer Debts List */}
             <div className="space-y-2 text-xs">
               <div className="font-bold text-white">Historia ya Madeni & Malipo:</div>
-              {debts.filter((d) => d.customerId === statementCustomer.id).length === 0 ? (
+              {debts.filter((d) => statementCustomer?.id && d.customerId === statementCustomer.id).length === 0 ? (
                 <div className="p-4 rounded-xl bg-slate-950 text-slate-500 text-center">
                   Mteja huyu hajawahi kuwa na deni.
                 </div>
               ) : (
                 debts
-                  .filter((d) => d.customerId === statementCustomer.id)
+                  .filter((d) => statementCustomer?.id && d.customerId === statementCustomer.id)
                   .map((d) => (
                     <div key={d.id} className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                       <div className="flex items-center justify-between font-bold">

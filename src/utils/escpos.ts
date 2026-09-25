@@ -326,7 +326,7 @@ export function generateEscPosReceipt(
     builder.divider('-', widthChars);
 
     for (const item of sale.items) {
-      const itemName = item.name;
+      const itemName = item.productName || (item as any).name || 'Bidhaa';
       const unitLabel = item.packagingUnitName ? ` [${item.packagingUnitName}]` : '';
       const fullName = itemName + unitLabel;
 
@@ -352,8 +352,9 @@ export function generateEscPosReceipt(
   } else {
     // 58mm (32 chars) compact layout
     for (const item of sale.items) {
+      const itemName = item.productName || (item as any).name || 'Bidhaa';
       const unitLabel = item.packagingUnitName ? ` [${item.packagingUnitName}]` : '';
-      builder.bold(true).line(item.name + unitLabel).bold(false);
+      builder.bold(true).line(itemName + unitLabel).bold(false);
 
       const qtyPrice = `${item.quantity} x ${item.unitPrice.toLocaleString()}`;
       const lineTotal = `${item.total.toLocaleString()} TZS`;
@@ -402,9 +403,10 @@ export function generateEscPosReceipt(
     builder.row(` ${methodLabel}${ref}`, `${p.amount.toLocaleString()} TZS`, widthChars);
   }
 
-  if (sale.amountPaid && sale.amountPaid > sale.total) {
-    const change = sale.amountPaid - sale.total;
-    builder.row(' Kiasi Kilichotolewa:', `${sale.amountPaid.toLocaleString()} TZS`, widthChars);
+  const totalPaid = (sale as any).amountPaid || sale.payments.reduce((sum, p) => sum + p.amount, 0);
+  if (totalPaid > sale.total) {
+    const change = totalPaid - sale.total;
+    builder.row(' Kiasi Kilichotolewa:', `${totalPaid.toLocaleString()} TZS`, widthChars);
     builder.row(' Chenji / Baki:', `${change.toLocaleString()} TZS`, widthChars);
   }
 
@@ -492,8 +494,9 @@ export function generateEscPosTextPreview(
 
   lines.push('-'.repeat(width));
   for (const item of sale.items) {
+    const itemName = item.productName || (item as any).name || 'Bidhaa';
     const unit = item.packagingUnitName ? ` [${item.packagingUnitName}]` : '';
-    lines.push(item.name + unit);
+    lines.push(itemName + unit);
     lines.push(row(` ${item.quantity} x ${item.unitPrice.toLocaleString()}`, `${item.total.toLocaleString()} TZS`));
   }
 

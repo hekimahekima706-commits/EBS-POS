@@ -614,13 +614,13 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
                           </span>
                         )}
 
-                        {isMed && product.medicineType === 'pom' && (
+                        {isMed && product.medicineType?.toUpperCase() === 'POM' && (
                           <span className="px-1.5 py-0.5 rounded-md bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300 text-[9px] font-black shrink-0 flex items-center gap-0.5">
                             <Pill className="w-2.5 h-2.5" /> POM (Cheti)
                           </span>
                         )}
 
-                        {isMed && product.medicineType === 'otc' && (
+                        {isMed && product.medicineType?.toUpperCase() === 'OTC' && (
                           <span className="px-1.5 py-0.5 rounded-md bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300 text-[9px] font-bold shrink-0">
                             OTC
                           </span>
@@ -885,12 +885,12 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
                               <span className="font-bold text-slate-900 dark:text-white leading-tight">
                                 {item.brandName || item.productName}
                               </span>
-                              {isMedItem && item.medicineType === 'pom' && (
+                              {isMedItem && item.medicineType?.toUpperCase() === 'POM' && (
                                 <span className="text-[9px] px-1.5 py-0.2 rounded font-black bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300">
                                   POM
                                 </span>
                               )}
-                              {isMedItem && item.medicineType === 'otc' && (
+                              {isMedItem && item.medicineType?.toUpperCase() === 'OTC' && (
                                 <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300">
                                   OTC
                                 </span>
@@ -1289,7 +1289,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
               {/* Pharmacy Dispensing Slip Inputs (Patient & Prescription Info) */}
               {(profile.mode === 'pharmacy' ||
                 cartItems.some(
-                  (i) => i.isPharmacyItem || !!i.dosageInstruction || !!i.batchNumber || i.medicineType === 'pom'
+                  (i) => i.isPharmacyItem || !!i.dosageInstruction || !!i.batchNumber || i.medicineType?.toUpperCase() === 'POM'
                 )) && (
                 <div className="p-3.5 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-900/60 rounded-2xl space-y-3">
                   <div className="flex items-center justify-between border-b border-teal-200 dark:border-teal-900/60 pb-1.5">
@@ -1725,6 +1725,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
       {modalDetailsSale && (
         <TransactionDetailsModal
           sale={modalDetailsSale}
+          currentUser={currentUser}
           onClose={() => setModalDetailsSale(null)}
           onPrintReceipt={() => {
             const saleToPrint = modalDetailsSale;

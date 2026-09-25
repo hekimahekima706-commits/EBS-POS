@@ -262,53 +262,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saved = localStorage.getItem(`${STORAGE_KEY}_users`);
       if (saved) {
         const parsed: User[] = JSON.parse(saved);
-        // Safely migrate and repair any seed user accounts that had corrupted hashes or obsolete demo credentials
-        return parsed.map((u) => {
-          // If this is the seed owner account or has corrupted legacy hash, safely sync with production credentials
-          if (u.id === 'usr-1' || (u.role === 'owner' && (u.passwordHash === '8e1b6f04c64b58e72614b62db419c8f9db1c3ca5e1f0e2d36d4dfbcbfb1d8481' || u.username === 'amani' || u.username === 'elly'))) {
-            return {
-              ...u,
-              id: 'usr-1',
-              username: 'owner01',
-              name: u.name || 'Selemani Rashid (Owner)',
-              passwordHash: 'e1b642412970a6c896342c5e199144d5f53c093f8fcbffe304b2d4432db3c1af',
-              mustChangePassword: true,
-              pin: u.pin || '1234',
-              failedLoginAttempts: 0,
-              lockoutUntil: undefined,
-              active: true,
-            };
-          }
-          // Also fix legacy broken hashes on seed staff accounts if needed
-          const matchInitial = INITIAL_USERS.find((iu) => iu.id === u.id || iu.username === u.username);
-          if (matchInitial && (
-            u.passwordHash === 'f4b1626fcf017c6031f0cf8aa5efd24e756858e77a16f2fe102cc0a12e3e5c94' ||
-            u.passwordHash === '7c89f55e09841f3e7ff79aa806f1d07c3cb4adcf5c6cbafbfe07d0db3b6f2ec5' ||
-            u.passwordHash === 'c7c8c366ff117db3672d17cf3cf39f8fbd868b4e23cfc23e8006e8b4e18342ee' ||
-            u.passwordHash === '9a9de7c61ec4cfba7318ec7e7f6f5951d3b76cf5177a46f7c81aa99015f8a0ff' ||
-            u.passwordHash === '8e1b6f04c64b58e72614b62db419c8f9db1c3ca5e1f0e2d36d4dfbcbfb1d8481'
-          )) {
-            return {
-              ...u,
-              passwordHash: matchInitial.passwordHash,
-              pin: u.pin || matchInitial.pin,
-            };
-          }
-          return u;
-        });
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Safely migrate and repair any seed user accounts that had corrupted hashes or obsolete demo credentials
+          return parsed.filter(Boolean).map((u) => {
+            if (!u || typeof u !== 'object') return INITIAL_USERS[0];
+            // If this is the seed owner account or has corrupted legacy hash, safely sync with production credentials
+            if (u?.id === 'usr-1' || (u?.role === 'owner' && (u?.passwordHash === '8e1b6f04c64b58e72614b62db419c8f9db1c3ca5e1f0e2d36d4dfbcbfb1d8481' || u?.username === 'amani' || u?.username === 'elly'))) {
+              return {
+                ...u,
+                id: 'usr-1',
+                username: 'owner01',
+                name: u?.name || 'Selemani Rashid (Owner)',
+                passwordHash: 'e1b642412970a6c896342c5e199144d5f53c093f8fcbffe304b2d4432db3c1af',
+                mustChangePassword: true,
+                pin: u?.pin || '1234',
+                failedLoginAttempts: 0,
+                lockoutUntil: undefined,
+                active: true,
+              };
+            }
+            // Also fix legacy broken hashes on seed staff accounts if needed
+            const matchInitial = INITIAL_USERS.find((iu) => iu?.id === u?.id || (u?.username && iu?.username === u.username));
+            if (matchInitial && (
+              u?.passwordHash === 'f4b1626fcf017c6031f0cf8aa5efd24e756858e77a16f2fe102cc0a12e3e5c94' ||
+              u?.passwordHash === '7c89f55e09841f3e7ff79aa806f1d07c3cb4adcf5c6cbafbfe07d0db3b6f2ec5' ||
+              u?.passwordHash === 'c7c8c366ff117db3672d17cf3cf39f8fbd868b4e23cfc23e8006e8b4e18342ee' ||
+              u?.passwordHash === '9a9de7c61ec4cfba7318ec7e7f6f5951d3b76cf5177a46f7c81aa99015f8a0ff' ||
+              u?.passwordHash === '8e1b6f04c64b58e72614b62db419c8f9db1c3ca5e1f0e2d36d4dfbcbfb1d8481'
+            )) {
+              return {
+                ...u,
+                passwordHash: matchInitial.passwordHash,
+                pin: u?.pin || matchInitial.pin,
+              };
+            }
+            return u;
+          });
+        }
       }
       const legacy = localStorage.getItem('ebs_tanzania_data_v1_users');
       if (legacy) {
         const parsed: User[] = JSON.parse(legacy);
-        return parsed.map((u) => {
-          const initMatch = INITIAL_USERS.find((iu) => iu.id === u.id || iu.username === u.username);
-          return {
-            ...u,
-            passwordHash: (initMatch ? initMatch.passwordHash : 'e1b642412970a6c896342c5e199144d5f53c093f8fcbffe304b2d4432db3c1af'),
-            createdAt: u.createdAt || new Date().toISOString(),
-            permissions: u.permissions || (initMatch ? initMatch.permissions : INITIAL_USERS[0].permissions),
-          };
-        });
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter(Boolean).map((u) => {
+            if (!u || typeof u !== 'object') return INITIAL_USERS[0];
+            const initMatch = INITIAL_USERS.find((iu) => iu?.id === u?.id || (u?.username && iu?.username === u.username));
+            return {
+              ...u,
+              id: u?.id || (initMatch ? initMatch.id : 'usr-1'),
+              passwordHash: (initMatch ? initMatch.passwordHash : 'e1b642412970a6c896342c5e199144d5f53c093f8fcbffe304b2d4432db3c1af'),
+              createdAt: u?.createdAt || new Date().toISOString(),
+              permissions: u?.permissions || (initMatch ? initMatch.permissions : INITIAL_USERS[0].permissions),
+            };
+          });
+        }
       }
     } catch (e) {
       console.error('Error loading users:', e);
@@ -316,11 +323,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return INITIAL_USERS;
   });
 
-  // Auth & Session State (Must NOT be true by default)
+  // Auth & Session State (Must NOT be true without valid user session)
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     try {
       const savedAuth = localStorage.getItem(`${STORAGE_KEY}_is_authenticated`);
-      return savedAuth !== null ? JSON.parse(savedAuth) : false;
+      const authVal = savedAuth !== null ? JSON.parse(savedAuth) : false;
+      if (authVal) {
+        const savedUser = localStorage.getItem(`${STORAGE_KEY}_current_user`);
+        if (savedUser) {
+          const parsed = JSON.parse(savedUser);
+          if (parsed && typeof parsed === 'object' && parsed.id) {
+            return true;
+          }
+        }
+      }
+      return false;
     } catch {
       return false;
     }
@@ -340,13 +357,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const savedSession = localStorage.getItem(`${STORAGE_KEY}_current_user`);
       if (savedSession) {
         const userObj = JSON.parse(savedSession);
-        const match = users.find((u) => u.id === userObj.id && u.active);
-        if (match) return match;
+        if (userObj && typeof userObj === 'object' && userObj.id) {
+          const match = users?.find((u) => u?.id === userObj.id && u?.active);
+          if (match) return match;
+          return userObj;
+        }
       }
     } catch (e) {
       console.error('Error loading current user:', e);
     }
-    return users[0] || INITIAL_USERS[0];
+    return users?.[0] || INITIAL_USERS[0];
   });
 
   // Theme & Preferences State
@@ -401,7 +421,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [sessions, setSessions] = useState<UserSession[]>(() => {
     try {
       const saved = localStorage.getItem(`${STORAGE_KEY}_sessions`);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter(Boolean);
+        }
+      }
     } catch {}
     return [
       {
@@ -409,7 +434,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         userId: currentUser?.id || 'usr-1',
         userName: currentUser?.name || 'Amani Mwenyewe',
         userRole: currentUser?.role || 'owner',
-        device: navigator.userAgent.includes('Mobile') ? 'Mobile Device' : 'Main POS Terminal',
+        device: typeof navigator !== 'undefined' && navigator.userAgent.includes('Mobile') ? 'Mobile Device' : 'Main POS Terminal',
         loginTime: new Date().toISOString(),
         lastActivityTime: new Date().toISOString(),
         ipAddress: '192.168.1.100',
@@ -419,7 +444,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [activeSession, setActiveSession] = useState<UserSession | null>(() => {
-    return sessions[0] || null;
+    return sessions?.[0] || null;
   });
 
   const [products, setProducts] = useState<Product[]>(() => {
@@ -640,7 +665,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const elapsedMinutes = (Date.now() - lastActivityRef.current) / (1000 * 60);
         if (elapsedMinutes >= sessionTimeoutMinutes) {
           setIsLocked(true);
-          logAction('SESSION_AUTO_LOCKED', `Mfumo umefungwa kiotomatiki kwa kutokuwa na shughuli kwa dakika ${sessionTimeoutMinutes}`, 'auth', currentUser.id);
+          logAction('SESSION_AUTO_LOCKED', `Mfumo umefungwa kiotomatiki kwa kutokuwa na shughuli kwa dakika ${sessionTimeoutMinutes}`, 'auth', currentUser?.id);
         }
       }
     }, 30000); // check every 30s
@@ -676,7 +701,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Theme & Appearance Setters
   const setThemeMode = useCallback((mode: ThemeMode) => {
     setThemeModeState(mode);
-    if (currentUser) {
+    if (currentUser?.id) {
       const updatedUser = {
         ...currentUser,
         preferences: {
@@ -684,14 +709,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           themeMode: mode,
         },
       };
-      setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
+      setUsers((prev) => prev.map((u) => (u?.id === currentUser?.id ? updatedUser : u)));
       setCurrentUser(updatedUser);
     }
   }, [currentUser]);
 
   const setPrimaryColor = useCallback((color: PrimaryColor) => {
     setPrimaryColorState(color);
-    if (currentUser) {
+    if (currentUser?.id) {
       const updatedUser = {
         ...currentUser,
         preferences: {
@@ -699,14 +724,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           primaryColor: color,
         },
       };
-      setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
+      setUsers((prev) => prev.map((u) => (u?.id === currentUser?.id ? updatedUser : u)));
       setCurrentUser(updatedUser);
     }
   }, [currentUser]);
 
   const setFontSize = useCallback((size: FontSize) => {
     setFontSizeState(size);
-    if (currentUser) {
+    if (currentUser?.id) {
       const updatedUser = {
         ...currentUser,
         preferences: {
@@ -714,14 +739,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           fontSize: size,
         },
       };
-      setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
+      setUsers((prev) => prev.map((u) => (u?.id === currentUser?.id ? updatedUser : u)));
       setCurrentUser(updatedUser);
     }
   }, [currentUser]);
 
   const setBackgroundStyle = useCallback((style: BackgroundStyle) => {
     setBackgroundStyleState(style);
-    if (currentUser) {
+    if (currentUser?.id) {
       const updatedUser = {
         ...currentUser,
         preferences: {
@@ -729,14 +754,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           backgroundStyle: style,
         },
       };
-      setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
+      setUsers((prev) => prev.map((u) => (u?.id === currentUser?.id ? updatedUser : u)));
       setCurrentUser(updatedUser);
     }
   }, [currentUser]);
 
   const setLanguage = useCallback((lang: AppLanguage) => {
     setLanguageState(lang);
-    if (currentUser) {
+    if (currentUser?.id) {
       const updatedUser = {
         ...currentUser,
         preferences: {
@@ -744,7 +769,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           language: lang,
         },
       };
-      setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
+      setUsers((prev) => prev.map((u) => (u?.id === currentUser?.id ? updatedUser : u)));
       setCurrentUser(updatedUser);
     }
   }, [currentUser]);
@@ -946,20 +971,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [users, logAction]);
 
   const logoutUser = useCallback(() => {
-    if (activeSession) {
+    if (activeSession?.id) {
       setSessions((prev) =>
-        prev.map((s) => (s.id === activeSession.id ? { ...s, logoutTime: new Date().toISOString(), status: 'terminated' } : s))
+        prev.map((s) => (s?.id === activeSession.id ? { ...s, logoutTime: new Date().toISOString(), status: 'terminated' } : s))
       );
     }
     setActiveSession(null);
     setIsAuthenticated(false);
     setIsLocked(false);
-    logAction('LOGOUT', `Mtumiaji ${currentUser.name} ametoka kwenye mfumo`, 'auth', currentUser.id);
+    logAction('LOGOUT', `Mtumiaji ${currentUser?.name || 'Mtumiaji'} ametoka kwenye mfumo`, 'auth', currentUser?.id);
   }, [currentUser, activeSession, logAction]);
 
   const lockSession = useCallback(() => {
     setIsLocked(true);
-    logAction('SESSION_LOCKED', `Mfumo umefungwa kwa kitufe cha Lock (🔒) na ${currentUser.name}`, 'auth', currentUser.id);
+    logAction('SESSION_LOCKED', `Mfumo umefungwa kwa kitufe cha Lock (🔒) na ${currentUser?.name || 'Mtumiaji'}`, 'auth', currentUser?.id);
   }, [currentUser, logAction]);
 
   const unlockSession = useCallback(async (pinOrPassword: string): Promise<{ success: boolean; message?: string }> => {
@@ -969,22 +994,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // Check PIN first
-    if (currentUser.pin && currentUser.pin === clean) {
+    if (currentUser?.pin && currentUser.pin === clean) {
       setIsLocked(false);
-      logAction('SESSION_UNLOCKED_PIN', `Mfumo umefunguliwa na ${currentUser.name} kwa PIN`, 'auth', currentUser.id);
+      logAction('SESSION_UNLOCKED_PIN', `Mfumo umefunguliwa na ${currentUser?.name || 'Mtumiaji'} kwa PIN`, 'auth', currentUser?.id);
       return { success: true };
     }
 
     // Check Password Hash
     const hashed = await hashPassword(clean);
-    if (hashed === currentUser.passwordHash) {
+    if (currentUser?.passwordHash && hashed === currentUser.passwordHash) {
       setIsLocked(false);
-      logAction('SESSION_UNLOCKED_PASS', `Mfumo umefunguliwa na ${currentUser.name} kwa Password`, 'auth', currentUser.id);
+      logAction('SESSION_UNLOCKED_PASS', `Mfumo umefunguliwa na ${currentUser?.name || 'Mtumiaji'} kwa Password`, 'auth', currentUser?.id);
       return { success: true };
     }
 
     // Check if another active user is unlocking
-    const otherUser = users.find((u) => u.pin === clean && u.active);
+    const otherUser = users.find((u) => u?.pin === clean && u?.active);
     if (otherUser) {
       setCurrentUser(otherUser);
       setIsLocked(false);
@@ -1027,7 +1052,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       mustChangePassword: false, // cleared
     };
 
-    setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updated : u)));
+    setUsers((prev) => prev.map((u) => (u?.id === currentUser?.id ? updated : u)));
     setCurrentUser(updated);
     setIsAuthenticated(true);
     setIsLocked(false);
@@ -1047,7 +1072,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveSession(newSession);
     setSessions((prev) => [newSession, ...prev.slice(0, 19)]);
 
-    logAction('PASSWORD_CHANGED', `Mtumiaji ${currentUser.name} amesasisha neno lake la siri na PIN kikamilifu`, 'auth', currentUser.id);
+    logAction('PASSWORD_CHANGED', `Mtumiaji ${currentUser?.name || ''} amesasisha neno lake la siri na PIN kikamilifu`, 'auth', currentUser?.id);
 
     return { success: true, message: 'Neno jipya la siri na PIN vimewekwa kikamilifu!' };
   }, [currentUser, logAction]);
@@ -1188,21 +1213,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [logAction]);
 
   const updateUser = useCallback((id: string, updates: Partial<User>) => {
-    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...updates } : u)));
-    if (currentUser.id === id) {
+    setUsers((prev) => prev.map((u) => (u?.id === id ? { ...u, ...updates } : u)));
+    if (currentUser?.id === id) {
       setCurrentUser((prev) => ({ ...prev, ...updates }));
     }
     logAction('USER_UPDATED', `Mtumiaji aliyesasishwa: ID ${id}`, 'user', id);
-  }, [currentUser.id, logAction]);
+  }, [currentUser?.id, logAction]);
 
   const deleteUser = useCallback((id: string) => {
-    if (currentUser.id === id) {
+    if (currentUser?.id === id) {
       alert('Huwezi kufuta akaunti unayotumia sasa hivi!');
       return;
     }
-    setUsers((prev) => prev.filter((u) => u.id !== id));
+    setUsers((prev) => prev.filter((u) => u?.id !== id));
     logAction('USER_DELETED', `Mtumiaji amefutwa: ID ${id}`, 'user', id);
-  }, [currentUser.id, logAction]);
+  }, [currentUser?.id, logAction]);
 
   const toggleUserActive = useCallback((id: string) => {
     setUsers((prev) =>
@@ -1296,8 +1321,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unit: product.unit,
       reason,
       note,
-      userId: currentUser.id,
-      userName: currentUser.name,
+      userId: currentUser?.id || 'usr-anon',
+      userName: currentUser?.name || 'Mtumiaji',
       timestamp: new Date().toISOString(),
       varianceMl,
     };
@@ -1307,14 +1332,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Queue in Offline-First Sync Engine
     const device = getLocalDeviceIdentity();
-    const bizId = (profile as any).id || 'EBS-BIZ-000001';
+    const bizId = (profile as any)?.id || 'EBS-BIZ-000001';
+    const deviceId = device?.id || 'DEV-LOCAL-001';
+    const deviceName = device?.name || 'Local POS Terminal';
     enqueueOfflineTransaction(bizId, {
-      localId: generateLocalTransactionId(device.id),
+      localId: generateLocalTransactionId(deviceId),
       businessId: bizId,
-      userId: currentUser.id,
-      userName: currentUser.name,
-      deviceId: device.id,
-      deviceName: device.name,
+      userId: currentUser?.id || 'usr-anon',
+      userName: currentUser?.name || 'Mtumiaji',
+      deviceId: deviceId,
+      deviceName: deviceName,
       entityType: 'stock_adjustment',
       action: 'update',
       payload: {
@@ -1329,7 +1356,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     if (!isSimulatedOffline()) {
-      pushSyncQueueToServer(bizId, device.id).catch(() => {});
+      pushSyncQueueToServer(bizId, deviceId).catch(() => {});
     }
   }, [products, profile, currentUser, logAction]);
 
@@ -1389,8 +1416,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       customerId: options?.customerId,
       customerName: options?.customerName || (options?.customerId ? 'Mteja wa Kawaida' : undefined),
       customerPhone: options?.customerPhone,
-      cashierId: currentUser.id,
-      cashierName: currentUser.name,
+      cashierId: currentUser?.id || 'usr-cashier',
+      cashierName: currentUser?.name || 'Mhudumu / Keshia',
       status: 'completed',
       tableId: options?.tableId,
       tableName: options?.tableName,
@@ -1502,10 +1529,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       timestamp,
       type: 'sale',
       title: `Risiti ${invoiceNo} Imetolewa`,
-      description: `Mauzo ya ${total.toLocaleString()} TZS yamekamilika (${primaryMethod.toUpperCase()}) na ${currentUser.name}`,
+      description: `Mauzo ya ${total.toLocaleString()} TZS yamekamilika (${primaryMethod.toUpperCase()}) na ${currentUser?.name || 'Keshia'}`,
       relatedTransactionId: saleId,
       invoiceNo,
-      operatorName: currentUser.name,
+      operatorName: currentUser?.name || 'Keshia',
       amount: total,
       snapshotColor: '#059669',
     };
@@ -1515,21 +1542,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Queue in Offline-First Sync Engine & push if connected
     const device = getLocalDeviceIdentity();
-    const bizId = (profile as any).id || 'EBS-BIZ-000001';
+    const bizId = (profile as any)?.id || 'EBS-BIZ-000001';
+    const deviceId = device?.id || 'DEV-LOCAL-001';
+    const deviceName = device?.name || 'Local POS Terminal';
     enqueueOfflineTransaction(bizId, {
-      localId: generateLocalTransactionId(device.id),
+      localId: generateLocalTransactionId(deviceId),
       businessId: bizId,
-      userId: currentUser.id,
-      userName: currentUser.name,
-      deviceId: device.id,
-      deviceName: device.name,
+      userId: currentUser?.id || 'usr-cashier',
+      userName: currentUser?.name || 'Keshia',
+      deviceId: deviceId,
+      deviceName: deviceName,
       entityType: 'sale',
       action: 'create',
       payload: newSale
     });
 
     if (!isSimulatedOffline()) {
-      pushSyncQueueToServer(bizId, device.id).catch(() => {});
+      pushSyncQueueToServer(bizId, deviceId).catch(() => {});
     }
 
     return newSale;

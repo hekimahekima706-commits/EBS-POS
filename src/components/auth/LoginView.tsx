@@ -86,7 +86,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onOpenSupe
   };
 
   const handleDemoRoleClick = (role: UserRole) => {
-    const demoUser = users.find((u) => u.role === role && u.active);
+    const demoUser = users.find((u) => u?.role === role && u?.active);
     if (demoUser) {
       setUsernameOrPhone(demoUser.username);
       setPassword('');

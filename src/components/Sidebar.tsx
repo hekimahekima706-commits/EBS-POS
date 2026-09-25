@@ -194,13 +194,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isOpe
         <div className="p-3 bg-slate-800/60 border border-slate-800 m-3 rounded-2xl">
           <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold flex items-center justify-between">
             <span>Hali ya Mfumo:</span>
-            <span className="text-emerald-400 font-semibold">{profile.mode.toUpperCase()}</span>
+            <span className="text-emerald-400 font-semibold">{profile?.mode ? profile.mode.toUpperCase() : 'GENERAL'}</span>
           </div>
           <div className="text-xs font-bold text-white mt-1 truncate">
-            {profile.name}
+            {profile?.name || 'EBS SMART BIZ'}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">
-            Mtumiaji: <strong className="text-slate-200">{currentUser.name}</strong> ({currentUser.role})
+            Mtumiaji: <strong className="text-slate-200">{currentUser?.name || 'Mtumiaji'}</strong> ({currentUser?.role || 'Staff'})
           </div>
         </div>
 
