@@ -3,16 +3,44 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
 
+/**
+ * Strictly targeted Supabase tables for EBS system
+ */
+export const PROFILES_TABLE = 'profiles' as const;
+export const BUSINESSES_TABLE = 'businesses' as const;
+
 export const supabaseClient: SupabaseClient<any, any, any> | null = (supabaseUrl && supabaseAnonKey)
   ? createClient(supabaseUrl, supabaseAnonKey, {
-      db: { schema: 'pos' },
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+      db: {
+        schema: 'public',
+      },
       realtime: {
         params: {
-          eventsPerSecond: 10
-        }
-      }
+          eventsPerSecond: 10,
+        },
+      },
     })
   : null;
+
+/**
+ * Helper to query the strictly targeted profiles table
+ */
+export function getProfilesTable() {
+  if (!supabaseClient) return null;
+  return supabaseClient.from(PROFILES_TABLE);
+}
+
+/**
+ * Helper to query the strictly targeted businesses table
+ */
+export function getBusinessesTable() {
+  if (!supabaseClient) return null;
+  return supabaseClient.from(BUSINESSES_TABLE);
+}
 
 /**
  * Helper to subscribe to real-time sales and products changes across devices
@@ -35,7 +63,7 @@ export function subscribeToPosRealtime(
       .channel(`pos_realtime_${bId}_${Date.now()}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'pos', table: 'products' },
+        { event: '*', schema: 'public', table: 'products' },
         (payload) => {
           if (singleCb) singleCb('products', payload);
           if (callbacks?.onProductChange) callbacks.onProductChange(payload);
@@ -43,7 +71,7 @@ export function subscribeToPosRealtime(
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'pos', table: 'sales' },
+        { event: '*', schema: 'public', table: 'sales' },
         (payload) => {
           if (singleCb) singleCb('sales', payload);
           if (callbacks?.onSaleChange) callbacks.onSaleChange(payload);
