@@ -30,9 +30,10 @@ import {
 
 interface FirstTimeSetupWizardProps {
   onComplete?: () => void;
+  onCancel?: () => void;
 }
 
-export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onComplete }) => {
+export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onComplete, onCancel }) => {
   const { completeSetupWizard } = useApp();
 
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
@@ -210,24 +211,38 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
       <div className="w-full max-w-3xl bg-slate-950/90 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden backdrop-blur-xl">
         {/* Wizard Header */}
         <div className="bg-gradient-to-r from-emerald-900/60 via-slate-900 to-teal-900/40 p-6 sm:p-8 border-b border-slate-800 relative">
-          <div className="flex items-center space-x-3 mb-2">
-            <img
-              src="/ebs-logo-chaguo2-icon.png"
-              onError={(e) => {
-                e.currentTarget.src = '/ebs-app-icon-pure.png';
-              }}
-              alt="EBS Enterprise POS"
-              className="w-12 h-12 rounded-2xl object-cover shadow-lg shadow-emerald-500/20 border border-emerald-500/30 shrink-0"
-            />
-            <div>
-              <span className="text-[11px] font-black uppercase tracking-widest text-emerald-400">
-                Enterprise Business System • Tanzania V1.3.1
-              </span>
-              <h1 className="text-2xl sm:text-3xl font-black text-white">Karibu kwenye EBS</h1>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
+            <div className="flex items-center space-x-3">
+              <img
+                src="/ebs-logo-chaguo2-icon.png"
+                onError={(e) => {
+                  e.currentTarget.src = '/ebs-app-icon-pure.png';
+                }}
+                alt="EBS Enterprise POS"
+                className="w-12 h-12 rounded-2xl object-cover shadow-lg shadow-emerald-500/20 border border-emerald-500/30 shrink-0"
+              />
+              <div>
+                <span className="text-[11px] font-black uppercase tracking-widest text-emerald-400">
+                  Enterprise Business System • Tanzania V1.3.1
+                </span>
+                <h1 className="text-2xl sm:text-3xl font-black text-white">Sajili Biashara Mpya</h1>
+              </div>
             </div>
+
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="self-start sm:self-center inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-700/80 bg-slate-900/80 hover:bg-slate-800 hover:border-emerald-500/50 text-slate-300 hover:text-white text-xs font-semibold shadow-sm transition active:scale-95"
+                title="Ghairi usajili na urudi kwenye Login"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Rudi Kwenye Login</span>
+              </button>
+            )}
           </div>
           <p className="text-sm text-slate-300">
-            Tuanze kwa kuweka taarifa za biashara yako ili mfumo ujirekebishe kulingana na mahitaji yako.
+            Weka taarifa za biashara yako ili mfumo ujirekebishe kulingana na mahitaji yako.
           </p>
 
           {/* Stepper Indicator */}
@@ -268,6 +283,7 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
                       <strong className="uppercase">
                         {errorStep === 'signUp' ? 'Supabase Auth (signUp)' :
                          errorStep === 'businesses' ? 'Jedwali la businesses (Hifadhi ya Biashara)' :
+                         errorStep === 'profiles' ? 'Jedwali la profiles (Wasifu wa Mmiliki)' :
                          errorStep === 'app_users' ? 'Jedwali la app_users (Wasifu wa Mmiliki)' : errorStep}
                       </strong>
                     </div>
@@ -291,7 +307,7 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
             </div>
 
             {/* SQL RLS Snippet for Quick Fix in Supabase */}
-            {(errorStep === 'businesses' || errorStep === 'app_users' || errorMsg.includes('RLS') || errorMsg.includes('policy')) && (
+            {(errorStep === 'businesses' || errorStep === 'profiles' || errorStep === 'app_users' || errorMsg.includes('RLS') || errorMsg.includes('policy')) && (
               <div className="mt-3 pt-3 border-t border-red-800/60">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-bold text-slate-200 text-xs">
@@ -309,7 +325,7 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
                 {showRlsSnippet && (
                   <div className="mt-2.5 p-3.5 bg-slate-950 rounded-xl border border-slate-800 space-y-2.5">
                     <p className="text-slate-300 font-sans text-xs">
-                      Jedwali la <code className="text-emerald-400 font-bold">businesses</code> au <code className="text-emerald-400 font-bold">app_users</code> lina RLS iliyowashwa inayozuia INSERT ya mtumiaji mpya. Nakili na uendeshe SQL hii kwenye <strong>Supabase &gt; SQL Editor</strong>:
+                      Jedwali la <code className="text-emerald-400 font-bold">businesses</code> au <code className="text-emerald-400 font-bold">profiles</code> lina RLS iliyowashwa inayozuia INSERT ya mtumiaji mpya. Nakili na uendeshe SQL hii kwenye <strong>Supabase &gt; SQL Editor</strong>:
                     </p>
                     <pre className="p-3 bg-black/80 rounded-lg overflow-x-auto text-[11px] font-mono text-emerald-300 leading-relaxed border border-slate-800">
 {`-- 1. Ruhusu usajili wa biashara mpya (businesses)
@@ -319,7 +335,14 @@ CREATE POLICY "Allow public business registration" ON businesses FOR INSERT TO a
 DROP POLICY IF EXISTS "Allow public business read" ON businesses;
 CREATE POLICY "Allow public business read" ON businesses FOR SELECT TO anon, authenticated, service_role USING (true);
 
--- 2. Ruhusu usajili wa wasifu wa mmiliki (app_users)
+-- 2. Ruhusu usajili wa wasifu wa mmiliki (profiles)
+ALTER TABLE IF EXISTS profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public owner registration" ON profiles;
+CREATE POLICY "Allow public owner registration" ON profiles FOR INSERT TO anon, authenticated, service_role WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public profiles read" ON profiles;
+CREATE POLICY "Allow public profiles read" ON profiles FOR SELECT TO anon, authenticated, service_role USING (true);
+
+-- 3. Ikiwa mradi wako unatumia pia app_users (hiari)
 ALTER TABLE IF EXISTS app_users ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow public owner registration" ON app_users;
 CREATE POLICY "Allow public owner registration" ON app_users FOR INSERT TO anon, authenticated, service_role WITH CHECK (true);
@@ -329,7 +352,7 @@ CREATE POLICY "Allow public users read" ON app_users FOR SELECT TO anon, authent
                     <button
                       type="button"
                       onClick={() => {
-                        const sql = `-- 1. Ruhusu usajili wa biashara mpya (businesses)\nALTER TABLE IF EXISTS businesses ENABLE ROW LEVEL SECURITY;\nDROP POLICY IF EXISTS "Allow public business registration" ON businesses;\nCREATE POLICY "Allow public business registration" ON businesses FOR INSERT TO anon, authenticated, service_role WITH CHECK (true);\nDROP POLICY IF EXISTS "Allow public business read" ON businesses;\nCREATE POLICY "Allow public business read" ON businesses FOR SELECT TO anon, authenticated, service_role USING (true);\n\n-- 2. Ruhusu usajili wa wasifu wa mmiliki (app_users)\nALTER TABLE IF EXISTS app_users ENABLE ROW LEVEL SECURITY;\nDROP POLICY IF EXISTS "Allow public owner registration" ON app_users;\nCREATE POLICY "Allow public owner registration" ON app_users FOR INSERT TO anon, authenticated, service_role WITH CHECK (true);\nDROP POLICY IF EXISTS "Allow public users read" ON app_users;\nCREATE POLICY "Allow public users read" ON app_users FOR SELECT TO anon, authenticated, service_role USING (true);`;
+                        const sql = `-- 1. Ruhusu usajili wa biashara mpya (businesses)\nALTER TABLE IF EXISTS businesses ENABLE ROW LEVEL SECURITY;\nDROP POLICY IF EXISTS "Allow public business registration" ON businesses;\nCREATE POLICY "Allow public business registration" ON businesses FOR INSERT TO anon, authenticated, service_role WITH CHECK (true);\nDROP POLICY IF EXISTS "Allow public business read" ON businesses;\nCREATE POLICY "Allow public business read" ON businesses FOR SELECT TO anon, authenticated, service_role USING (true);\n\n-- 2. Ruhusu usajili wa wasifu wa mmiliki (profiles)\nALTER TABLE IF EXISTS profiles ENABLE ROW LEVEL SECURITY;\nDROP POLICY IF EXISTS "Allow public owner registration" ON profiles;\nCREATE POLICY "Allow public owner registration" ON profiles FOR INSERT TO anon, authenticated, service_role WITH CHECK (true);\nDROP POLICY IF EXISTS "Allow public profiles read" ON profiles;\nCREATE POLICY "Allow public profiles read" ON profiles FOR SELECT TO anon, authenticated, service_role USING (true);\n\n-- 3. Ikiwa mradi unatumia pia app_users\nALTER TABLE IF EXISTS app_users ENABLE ROW LEVEL SECURITY;\nDROP POLICY IF EXISTS "Allow public owner registration" ON app_users;\nCREATE POLICY "Allow public owner registration" ON app_users FOR INSERT TO anon, authenticated, service_role WITH CHECK (true);\nDROP POLICY IF EXISTS "Allow public users read" ON app_users;\nCREATE POLICY "Allow public users read" ON app_users FOR SELECT TO anon, authenticated, service_role USING (true);`;
                         navigator.clipboard.writeText(sql);
                         setCopiedSql(true);
                         setTimeout(() => setCopiedSql(false), 3000);
@@ -418,7 +441,18 @@ CREATE POLICY "Allow public users read" ON app_users FOR SELECT TO anon, authent
               </div>
             </div>
 
-            <div className="flex justify-end pt-4 border-t border-slate-800">
+            <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+              {onCancel ? (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white font-bold text-xs flex items-center gap-1.5 transition active:scale-95"
+                >
+                  <ArrowLeft className="w-4 h-4 text-emerald-400" />
+                  <span>Rudi Kwenye Login</span>
+                </button>
+              ) : <div />}
+
               <button
                 id="btn-wizard-step1-next"
                 type="button"
@@ -844,14 +878,25 @@ CREATE POLICY "Allow public users read" ON app_users FOR SELECT TO anon, authent
             </div>
 
             <div className="flex items-center justify-between pt-4 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => setStep(3)}
-                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-xs flex items-center gap-1.5"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span>Rudi Nyuma</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStep(3)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-xs flex items-center gap-1.5"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Rudi Nyuma</span>
+                </button>
+                {onCancel && (
+                  <button
+                    type="button"
+                    onClick={onCancel}
+                    className="px-3.5 py-2.5 rounded-xl border border-slate-800 bg-slate-950/80 hover:bg-slate-900 text-slate-400 hover:text-slate-200 font-semibold text-xs transition"
+                  >
+                    Ghairi (Rudi Login)
+                  </button>
+                )}
+              </div>
 
               <button
                 id="btn-wizard-finish"

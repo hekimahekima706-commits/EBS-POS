@@ -55,11 +55,15 @@ const MainAppContent: React.FC = () => {
   const [isSuperAdminView, setIsSuperAdminView] = useState(
     () => typeof window !== 'undefined' && (window.location.hash === '#admin' || window.location.pathname.startsWith('/admin'))
   );
+  const [isRegistering, setIsRegistering] = useState(
+    () => typeof window !== 'undefined' && (window.location.hash === '#register' || window.location.pathname.startsWith('/register'))
+  );
 
-  // Listen for admin hash navigation (e.g. /#admin or /admin)
+  // Listen for admin & registration hash navigation (e.g. /#admin, /#register)
   useEffect(() => {
     const handleHashChange = () => {
       setIsSuperAdminView(window.location.hash === '#admin' || window.location.pathname.startsWith('/admin'));
+      setIsRegistering(window.location.hash === '#register' || window.location.pathname.startsWith('/register'));
     };
     window.addEventListener('hashchange', handleHashChange);
     window.addEventListener('popstate', handleHashChange);
@@ -80,7 +84,7 @@ const MainAppContent: React.FC = () => {
       setCurrentView('inventory');
     } else if (currentUser?.role === 'accountant') {
       setCurrentView('reports');
-    } else if (currentUser?.role === 'owner' || currentUser?.role === 'manager' || currentUser?.role === 'admin') {
+    } else if (currentUser?.role === 'owner' || currentUser?.role === 'boss' || currentUser?.role === 'manager' || currentUser?.role === 'admin') {
       setCurrentView((prev) => (prev === 'pos' ? 'dashboard' : prev));
     }
   }, [currentUser?.id, currentUser?.role]);
@@ -90,7 +94,10 @@ const MainAppContent: React.FC = () => {
     let listenerHandler: any;
     try {
       CapApp.addListener('backButton', ({ canGoBack }) => {
-        if (sidebarOpen) {
+        if (isRegistering) {
+          setIsRegistering(false);
+          window.location.hash = '';
+        } else if (sidebarOpen) {
           setSidebarOpen(false);
         } else if (currentView !== 'pos' && currentView !== 'dashboard') {
           setCurrentView(currentUser?.role === 'cashier' || currentUser?.role === 'waiter' ? 'pos' : 'dashboard');
@@ -109,7 +116,7 @@ const MainAppContent: React.FC = () => {
         listenerHandler.remove();
       }
     };
-  }, [sidebarOpen, currentView, currentUser?.role]);
+  }, [sidebarOpen, currentView, currentUser?.role, isRegistering]);
 
   // 0. Super Admin / EBS Head Office Portal Mode
   if (isSuperAdminView) {
@@ -133,23 +140,34 @@ const MainAppContent: React.FC = () => {
     );
   }
 
-  // 1. First-Time Business Setup Wizard (if not yet completed)
-  if (!businessProfile || !businessProfile.setupCompleted) {
-    return (
-      <FirstTimeSetupWizard
-        onComplete={() => {
-          setCurrentView('dashboard');
-        }}
-      />
-    );
-  }
-
-  // 2. Main Authentication Screen (KARIBU EBS)
+  // 1. Initial Authentication Screen defaults to Login ("KARIBU EBS")
+  // Or switches to Business Registration Wizard when user chooses to register
   if (!isAuthenticated || !currentUser?.id) {
+    if (isRegistering) {
+      return (
+        <FirstTimeSetupWizard
+          onComplete={() => {
+            setIsRegistering(false);
+            window.location.hash = '';
+            setCurrentView('dashboard');
+          }}
+          onCancel={() => {
+            setIsRegistering(false);
+            window.location.hash = '';
+          }}
+        />
+      );
+    }
+
     return (
       <LoginView
         onLoginSuccess={() => {
-          // Route will update according to useEffect on currentUser
+          setIsRegistering(false);
+          window.location.hash = '';
+        }}
+        onOpenRegister={() => {
+          setIsRegistering(true);
+          window.location.hash = '#register';
         }}
         onOpenSuperAdmin={() => {
           setIsSuperAdminView(true);

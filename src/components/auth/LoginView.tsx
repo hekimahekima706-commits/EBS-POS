@@ -21,9 +21,10 @@ import { COLOR_SCHEMES, getColorScheme } from '../../utils/themeHelper';
 interface LoginViewProps {
   onLoginSuccess?: () => void;
   onOpenSuperAdmin?: () => void;
+  onOpenRegister?: () => void;
 }
 
-export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onOpenSuperAdmin }) => {
+export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onOpenSuperAdmin, onOpenRegister }) => {
   const { users, loginUser, changePassword, profile, primaryColor, language, t } = useApp();
 
   const [usernameOrPhone, setUsernameOrPhone] = useState('');
@@ -273,6 +274,20 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onOpenSupe
                 </>
               )}
             </button>
+
+            {/* Business Registration Link/Button */}
+            {onOpenRegister && (
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={onOpenRegister}
+                  className="w-full py-2.5 px-4 rounded-xl border border-emerald-500/30 bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 hover:text-emerald-200 text-sm font-semibold flex items-center justify-center gap-2 shadow-sm transition-all group active:scale-[0.99]"
+                >
+                  <Building2 className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+                  <span>Huna akaunti? Sajili Biashara Mpya</span>
+                </button>
+              </div>
+            )}
           </form>
 
           {/* Quick Demo Switcher */}

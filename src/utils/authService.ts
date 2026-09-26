@@ -50,7 +50,7 @@ export interface RegisterResult {
   businessId?: string;
   user?: User;
   error?: string;
-  errorStep?: 'signUp' | 'businesses' | 'app_users' | 'validation';
+  errorStep?: 'signUp' | 'businesses' | 'profiles' | 'app_users' | 'validation';
   details?: string;
 }
 
@@ -248,17 +248,21 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
     }
 
     // -------------------------------------------------------------
-    // STEP 3: Insert owner profile into `app_users` linked to business_id
+    // STEP 3: Insert owner profile into `profiles` table linked to `business_id`
+    // Maps role to 'boss' / 'owner' to match Supabase schema
     // -------------------------------------------------------------
     const passwordHash = owner.password ? await hashPassword(owner.password) : '';
     const ownerUserId = authUserId || owner.id || `usr-owner-${Date.now()}`;
-    const ownerUserRecord: any = {
+    const ownerRole: 'boss' | 'owner' = 'boss'; // mapped to boss/owner
+
+    const ownerProfileRecord: any = {
       id: ownerUserId,
       business_id: finalBusinessId,
       branch_id: null,
       name: owner.name.trim(),
+      full_name: owner.name.trim(),
       username: cleanUsername,
-      role: 'owner',
+      role: ownerRole,
       phone: cleanPhone,
       email: owner.email || null,
       password_hash: passwordHash,
@@ -294,47 +298,57 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
       can_view_profit: true,
       can_manage_users: true,
       created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
       last_login: new Date().toISOString(),
     };
 
     try {
-      // Primary insert target: `app_users` table
-      let userRes = await supabaseClient.from('app_users').insert(ownerUserRecord).select().single();
+      // Primary insert target: `profiles` table (matching user's Supabase schema)
+      let userRes = await supabaseClient.from('profiles').insert(ownerProfileRecord).select().single();
 
-      // Schema or table fallback if app_users not in current schema
+      // If schema/relation error in pos schema, try public schema for profiles
       if (userRes.error && (userRes.error.message.includes('relation') || userRes.error.message.includes('schema') || userRes.error.code === '42P01')) {
-        userRes = await supabaseClient.schema('public').from('app_users').insert(ownerUserRecord).select().single();
+        userRes = await supabaseClient.schema('public').from('profiles').insert(ownerProfileRecord).select().single();
+      }
+
+      // If `profiles` does not exist, fallback to `app_users` table
+      if (userRes.error && (userRes.error.message.includes('relation') || userRes.error.code === '42P01')) {
+        userRes = await supabaseClient.from('app_users').insert(ownerProfileRecord).select().single();
         if (userRes.error && (userRes.error.message.includes('relation') || userRes.error.code === '42P01')) {
-          // Fallback to `users` table if project uses users table
-          userRes = await supabaseClient.from('users').insert(ownerUserRecord).select().single();
-          if (userRes.error && (userRes.error.message.includes('relation') || userRes.error.code === '42P01')) {
-            userRes = await supabaseClient.schema('public').from('users').insert(ownerUserRecord).select().single();
-          }
+          userRes = await supabaseClient.schema('public').from('app_users').insert(ownerProfileRecord).select().single();
+        }
+      }
+
+      // If `app_users` also does not exist, fallback to `users` table
+      if (userRes.error && (userRes.error.message.includes('relation') || userRes.error.code === '42P01')) {
+        userRes = await supabaseClient.from('users').insert(ownerProfileRecord).select().single();
+        if (userRes.error && (userRes.error.message.includes('relation') || userRes.error.code === '42P01')) {
+          userRes = await supabaseClient.schema('public').from('users').insert(ownerProfileRecord).select().single();
         }
       }
 
       if (userRes.error) {
-        console.error('Supabase app_users insert error:', userRes.error);
+        console.error('Supabase profiles insert error:', userRes.error);
         const isRls = userRes.error.message.toLowerCase().includes('policy') ||
                       userRes.error.code === '42501' ||
                       userRes.error.message.toLowerCase().includes('row-level security');
         const rlsNote = isRls
-          ? ' [Sababu: Row-Level Security (RLS) imewashwa kwenye Supabase bila sera ya kuruhusu INSERT ya mmiliki kwenye jedwali la app_users. Tafadhali tekeleza sera ya RLS au lemaza RLS kwenye Supabase SQL Editor].'
+          ? ' [Sababu: Row-Level Security (RLS) imewashwa kwenye Supabase bila sera ya kuruhusu INSERT ya mmiliki kwenye jedwali la profiles. Tafadhali tekeleza sera ya RLS au lemaza RLS kwenye Supabase SQL Editor].'
           : '';
 
         return {
           success: false,
-          error: `Hitilafu ya Supabase wakati wa kusajili wasifu wa Mmiliki (app_users): ${userRes.error.message}${rlsNote}`,
-          errorStep: 'app_users',
+          error: `Hitilafu ya Supabase wakati wa kusajili wasifu wa Mmiliki (profiles): ${userRes.error.message}${rlsNote}`,
+          errorStep: 'profiles',
           details: userRes.error.details || userRes.error.hint,
         };
       }
     } catch (err: any) {
-      console.error('Supabase app_users exception:', err);
+      console.error('Supabase profiles exception:', err);
       return {
         success: false,
-        error: `Hitilafu ya mtandao wakati wa kusajili mmiliki kwenye app_users: ${err?.message || err}`,
-        errorStep: 'app_users',
+        error: `Hitilafu ya mtandao wakati wa kusajili mmiliki kwenye profiles: ${err?.message || err}`,
+        errorStep: 'profiles',
       };
     }
   }
@@ -397,12 +411,20 @@ export async function loginUser(usernameOrPhone: string, pass: string): Promise<
   // 1. Try Supabase if available
   if (supabaseClient) {
     try {
-      // First check app_users table, then fallback to users table
+      // First check profiles table, then app_users, then users table
       let supaRes = await supabaseClient
-        .from('app_users')
+        .from('profiles')
         .select('*')
         .or(`username.ilike.${cleanIdentifier},phone.eq.${cleanPhone || cleanIdentifier}`)
         .limit(1);
+
+      if (supaRes.error && (supaRes.error.message.includes('relation') || supaRes.error.code === '42P01')) {
+        supaRes = await supabaseClient
+          .from('app_users')
+          .select('*')
+          .or(`username.ilike.${cleanIdentifier},phone.eq.${cleanPhone || cleanIdentifier}`)
+          .limit(1);
+      }
 
       if (supaRes.error && (supaRes.error.message.includes('relation') || supaRes.error.code === '42P01')) {
         supaRes = await supabaseClient
@@ -497,10 +519,18 @@ export async function getCurrentUserProfile(userId?: string): Promise<User | nul
     // 2. Check Supabase if userId provided
     if (supabaseClient && userId) {
       let res = await supabaseClient
-        .from('app_users')
+        .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
+
+      if (res.error && (res.error.message.includes('relation') || res.error.code === '42P01')) {
+        res = await supabaseClient
+          .from('app_users')
+          .select('*')
+          .eq('id', userId)
+          .single();
+      }
 
       if (res.error && (res.error.message.includes('relation') || res.error.code === '42P01')) {
         res = await supabaseClient
