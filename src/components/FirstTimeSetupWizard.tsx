@@ -24,7 +24,8 @@ import {
   ShoppingBag,
   Beer,
   UtensilsCrossed,
-  Video
+  Video,
+  Users
 } from 'lucide-react';
 
 interface FirstTimeSetupWizardProps {
@@ -62,6 +63,10 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
 
   // Errors & Loading
   const [errorMsg, setErrorMsg] = useState('');
+  const [errorStep, setErrorStep] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
+  const [showRlsSnippet, setShowRlsSnippet] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const toggleSecondaryType = (name: string) => {
@@ -125,6 +130,9 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
   const handleFinishSetup = async () => {
     setIsSubmitting(true);
     setErrorMsg('');
+    setErrorStep(null);
+    setErrorDetails(null);
+    setShowRlsSnippet(false);
 
     try {
       // Calculate active modules based on selected business modes
@@ -175,14 +183,21 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
           name: ownerName,
           username: ownerUsername,
           phone: ownerPhone || phone,
+          email,
           password,
         }
       );
 
       if (onComplete) onComplete();
     } catch (err: any) {
-      console.error(err);
-      setErrorMsg(err.message || 'Hitilafu imetokea wakati wa kuhifadhi mipangilio.');
+      console.error('Business setup error:', err);
+      const msg = err?.message || 'Hitilafu imetokea wakati wa kusajili biashara kwenye Supabase.';
+      setErrorMsg(msg);
+      if (err?.step) setErrorStep(err.step);
+      if (err?.details) setErrorDetails(err.details);
+      if (msg.includes('RLS') || msg.includes('policy') || msg.includes('42501') || err?.step === 'businesses' || err?.step === 'app_users') {
+        setShowRlsSnippet(true);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -237,11 +252,96 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
           </div>
         </div>
 
-        {/* Error Alert */}
+        {/* Error Alert with Rich Diagnostics */}
         {errorMsg && (
-          <div className="m-6 p-4 rounded-2xl bg-red-950/80 border border-red-800 text-red-200 text-xs font-semibold flex items-center gap-2">
-            <span>⚠️</span>
-            <span>{errorMsg}</span>
+          <div className="m-6 p-4 rounded-2xl bg-red-950/90 border border-red-800 text-red-200 text-xs space-y-3 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <span className="text-xl">⚠️</span>
+                <div>
+                  <div className="font-black text-red-100 text-sm">Hitilafu ya Usajili (Supabase Database)</div>
+                  <div className="mt-1 text-slate-200 leading-relaxed font-medium">{errorMsg}</div>
+                  
+                  {errorStep && (
+                    <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-900/60 border border-red-700/60 text-[11px] font-mono text-red-100">
+                      <span>Hatua Iliyofeli:</span>
+                      <strong className="uppercase">
+                        {errorStep === 'signUp' ? 'Supabase Auth (signUp)' :
+                         errorStep === 'businesses' ? 'Jedwali la businesses (Hifadhi ya Biashara)' :
+                         errorStep === 'app_users' ? 'Jedwali la app_users (Wasifu wa Mmiliki)' : errorStep}
+                      </strong>
+                    </div>
+                  )}
+
+                  {errorDetails && (
+                    <div className="mt-2 text-[11px] text-red-300 font-mono bg-black/50 p-2.5 rounded-lg border border-red-900/60">
+                      {errorDetails}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setErrorMsg(''); setErrorStep(null); }}
+                className="text-red-400 hover:text-red-100 font-bold px-2 py-1 transition"
+                title="Funga taarifa hii"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* SQL RLS Snippet for Quick Fix in Supabase */}
+            {(errorStep === 'businesses' || errorStep === 'app_users' || errorMsg.includes('RLS') || errorMsg.includes('policy')) && (
+              <div className="mt-3 pt-3 border-t border-red-800/60">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-slate-200 text-xs">
+                    Suluhu ya Haraka: Weka Sera ya RLS (Row Level Security) Supabase
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowRlsSnippet(!showRlsSnippet)}
+                    className="text-xs font-bold text-emerald-400 hover:text-emerald-300 underline"
+                  >
+                    {showRlsSnippet ? 'Ficha Maelekezo ya SQL' : 'Onyesha Amri ya SQL ya Kurekebisha'}
+                  </button>
+                </div>
+
+                {showRlsSnippet && (
+                  <div className="mt-2.5 p-3.5 bg-slate-950 rounded-xl border border-slate-800 space-y-2.5">
+                    <p className="text-slate-300 font-sans text-xs">
+                      Jedwali la <code className="text-emerald-400 font-bold">businesses</code> au <code className="text-emerald-400 font-bold">app_users</code> lina RLS iliyowashwa inayozuia INSERT ya mtumiaji mpya. Nakili na uendeshe SQL hii kwenye <strong>Supabase &gt; SQL Editor</strong>:
+                    </p>
+                    <pre className="p-3 bg-black/80 rounded-lg overflow-x-auto text-[11px] font-mono text-emerald-300 leading-relaxed border border-slate-800">
+{`-- 1. Ruhusu usajili wa biashara mpya (businesses)
+ALTER TABLE IF EXISTS businesses ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public business registration" ON businesses;
+CREATE POLICY "Allow public business registration" ON businesses FOR INSERT TO anon, authenticated, service_role WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public business read" ON businesses;
+CREATE POLICY "Allow public business read" ON businesses FOR SELECT TO anon, authenticated, service_role USING (true);
+
+-- 2. Ruhusu usajili wa wasifu wa mmiliki (app_users)
+ALTER TABLE IF EXISTS app_users ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public owner registration" ON app_users;
+CREATE POLICY "Allow public owner registration" ON app_users FOR INSERT TO anon, authenticated, service_role WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public users read" ON app_users;
+CREATE POLICY "Allow public users read" ON app_users FOR SELECT TO anon, authenticated, service_role USING (true);`}
+                    </pre>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sql = `-- 1. Ruhusu usajili wa biashara mpya (businesses)\nALTER TABLE IF EXISTS businesses ENABLE ROW LEVEL SECURITY;\nDROP POLICY IF EXISTS "Allow public business registration" ON businesses;\nCREATE POLICY "Allow public business registration" ON businesses FOR INSERT TO anon, authenticated, service_role WITH CHECK (true);\nDROP POLICY IF EXISTS "Allow public business read" ON businesses;\nCREATE POLICY "Allow public business read" ON businesses FOR SELECT TO anon, authenticated, service_role USING (true);\n\n-- 2. Ruhusu usajili wa wasifu wa mmiliki (app_users)\nALTER TABLE IF EXISTS app_users ENABLE ROW LEVEL SECURITY;\nDROP POLICY IF EXISTS "Allow public owner registration" ON app_users;\nCREATE POLICY "Allow public owner registration" ON app_users FOR INSERT TO anon, authenticated, service_role WITH CHECK (true);\nDROP POLICY IF EXISTS "Allow public users read" ON app_users;\nCREATE POLICY "Allow public users read" ON app_users FOR SELECT TO anon, authenticated, service_role USING (true);`;
+                        navigator.clipboard.writeText(sql);
+                        setCopiedSql(true);
+                        setTimeout(() => setCopiedSql(false), 3000);
+                      }}
+                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black rounded-lg text-xs flex items-center gap-1.5 transition active:scale-95"
+                    >
+                      <span>{copiedSql ? '✓ Imenakiliwa kwenye Clipboard!' : '📋 Nakili Amri ya SQL (Copy SQL)'}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -727,6 +827,19 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
                 <div className="p-2 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-1.5 text-emerald-400 font-bold">
                   ✓ Ripoti & Faida
                 </div>
+              </div>
+            </div>
+
+            {/* Cashiers Management Notice (Cashiers created only in Owner Dashboard settings) */}
+            <div className="p-4 rounded-2xl bg-blue-950/40 border border-blue-800/60 flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-blue-900/60 text-blue-300 border border-blue-700/60 flex items-center justify-center shrink-0 mt-0.5">
+                <Users className="w-4 h-4" />
+              </div>
+              <div className="text-xs space-y-1">
+                <div className="font-bold text-white text-xs">Usimamizi wa Makeshia (Cashiers) & Wafanyakazi</div>
+                <p className="text-slate-300 leading-relaxed text-[11px]">
+                  Akaunti za makeshia (cashiers) na wahudumu hazisajiliwi hapa kwenye usajili wa awali wa hadharani kwa usalama wa biashara. Zitasimamiwa na kutengenezwa na mmiliki pekee ndani ya <strong>Dashibodi &gt; Mipangilio &gt; Wafanyakazi</strong>, ambapo unaweza kumpa keshia PIN, nenosiri, na kuchagua mamlaka (permissions) anazostahili.
+                </p>
               </div>
             </div>
 

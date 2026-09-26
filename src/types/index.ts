@@ -640,6 +640,7 @@ export interface ActiveModules {
 }
 
 export interface BusinessProfile {
+  id?: string;
   name: string;
   ownerName: string;
   tagline: string;

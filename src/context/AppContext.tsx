@@ -60,6 +60,7 @@ import {
   pullDeltaFromServer,
   isSimulatedOffline
 } from '../utils/syncEngine';
+import { registerBusinessOwner } from '../utils/authService';
 
 export interface AuthResponse {
   success: boolean;
@@ -76,7 +77,7 @@ interface AppContextType {
   updateProfile: (updates: Partial<BusinessProfile>) => void;
   updateBusinessProfile: (updates: Partial<BusinessProfile>) => void; // alias
   setBusinessMode: (mode: BusinessMode) => void;
-  completeSetupWizard: (profileUpdates: Partial<BusinessProfile>, ownerData: { name: string; username: string; phone: string; password: string }) => Promise<void>;
+  completeSetupWizard: (profileUpdates: Partial<BusinessProfile>, ownerData: { name: string; username: string; phone: string; password: string; email?: string }) => Promise<void>;
   resetSetupWizard: () => void;
 
   // Active User & Authentication
@@ -813,11 +814,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // First Time Setup Wizard Completion
   const completeSetupWizard = useCallback(async (
     profileUpdates: Partial<BusinessProfile>,
-    ownerData: { name: string; username: string; phone: string; password: string }
+    ownerData: { name: string; username: string; phone: string; password: string; email?: string }
   ) => {
+    // 1. Register business in businesses table & owner in app_users table (with signUp if enabled)
+    const regResult = await registerBusinessOwner({
+      business: {
+        ...profileUpdates,
+        name: profileUpdates.name || 'EBS Business',
+        ownerName: ownerData.name,
+        phone: profileUpdates.phone || ownerData.phone,
+        email: profileUpdates.email || ownerData.email,
+      },
+      owner: {
+        name: ownerData.name,
+        username: ownerData.username,
+        phone: ownerData.phone,
+        email: ownerData.email || profileUpdates.email,
+        password: ownerData.password,
+      },
+    });
+
+    if (!regResult.success) {
+      const err: any = new Error(regResult.error || 'Hitilafu wakati wa kusajili biashara kwenye hifadhidata.');
+      err.step = regResult.errorStep;
+      err.details = regResult.details;
+      throw err;
+    }
+
     const ownerPassHash = await hashPassword(ownerData.password);
-    const ownerUser: User = {
+    const ownerUser: User = regResult.user || {
       id: `usr-owner-${Date.now()}`,
+      businessId: regResult.businessId,
       name: ownerData?.name || 'Mmiliki',
       username: ownerData.username.toLowerCase().trim(),
       phone: ownerData.phone,
@@ -856,11 +883,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setProfile((prev) => ({
       ...prev,
       ...profileUpdates,
+      id: regResult.businessId || prev.id,
       ownerName: ownerData?.name || 'Mmiliki',
       setupCompleted: true,
     }));
 
-    logAction('SETUP_COMPLETED', `Usanidi wa kwanza umekamilika na mmiliki ${ownerData?.name || 'Mmiliki'} kusajiliwa.`, 'setting');
+    logAction('SETUP_COMPLETED', `Usanidi wa kwanza umekamilika na mmiliki ${ownerData?.name || 'Mmiliki'} kusajiliwa (ID ya Biashara: ${regResult.businessId || 'Local'}).`, 'setting');
   }, [logAction]);
 
   const resetSetupWizard = useCallback(() => {

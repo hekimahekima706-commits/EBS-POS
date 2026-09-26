@@ -92,6 +92,9 @@ CREATE TABLE IF NOT EXISTS pos.users (
 CREATE INDEX IF NOT EXISTS idx_users_business ON pos.users(business_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON pos.users(username);
 
+-- Compatibility view for app_users
+CREATE OR REPLACE VIEW pos.app_users AS SELECT * FROM pos.users;
+
 -- ----------------------------------------------------------------
 -- 4. USER SESSIONS
 -- ----------------------------------------------------------------
@@ -509,6 +512,35 @@ ALTER TABLE pos.camera_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pos.audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pos.sync_transactions ENABLE ROW LEVEL SECURITY;
 
+-- Explicit registration policies for new businesses and owner users:
+DROP POLICY IF EXISTS "Allow public business registration" ON pos.businesses;
+CREATE POLICY "Allow public business registration"
+    ON pos.businesses
+    FOR INSERT
+    TO authenticated, anon, service_role
+    WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public business select" ON pos.businesses;
+CREATE POLICY "Allow public business select"
+    ON pos.businesses
+    FOR SELECT
+    TO authenticated, anon, service_role
+    USING (true);
+
+DROP POLICY IF EXISTS "Allow public owner user registration" ON pos.users;
+CREATE POLICY "Allow public owner user registration"
+    ON pos.users
+    FOR INSERT
+    TO authenticated, anon, service_role
+    WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public users select" ON pos.users;
+CREATE POLICY "Allow public users select"
+    ON pos.users
+    FOR SELECT
+    TO authenticated, anon, service_role
+    USING (true);
+
 -- Service role has full access bypass for server-side operations
 -- For authenticated app clients, restrict to matching business_id:
 DO $$
@@ -517,7 +549,7 @@ DECLARE
 BEGIN
     FOR tbl IN
         SELECT table_name FROM information_schema.tables 
-        WHERE table_schema = 'pos' AND table_name NOT IN ('platform_admins', 'super_admin_actions', 'businesses')
+        WHERE table_schema = 'pos' AND table_name NOT IN ('platform_admins', 'super_admin_actions', 'businesses', 'users')
     LOOP
         EXECUTE format('
             DROP POLICY IF EXISTS biz_isolation_policy ON pos.%I;
