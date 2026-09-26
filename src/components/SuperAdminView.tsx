@@ -213,8 +213,8 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({ onBackToApp }) =
     const nextStatus = biz.status === 'active' ? 'suspended' : 'active';
     const confirmMsg =
       nextStatus === 'suspended'
-        ? `Je, una uhakika unataka KUZIMA biashara nzima ya "${biz.name}"? Vifaa vyote vya duka hili vitazuiwa mara moja.`
-        : `Je, una uhakika unataka KUFUNGUA tena biashara ya "${biz.name}"?`;
+        ? `Je, una uhakika unataka KUZIMA biashara nzima ya "${biz?.name || 'Biashara'}"? Vifaa vyote vya duka hili vitazuiwa mara moja.`
+        : `Je, una uhakika unataka KUFUNGUA tena biashara ya "${biz?.name || 'Biashara'}"?`;
 
     if (!window.confirm(confirmMsg)) return;
 
@@ -246,7 +246,7 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({ onBackToApp }) =
   const filteredBusinesses = businesses.filter((b) => {
     const term = searchTerm.toLowerCase();
     return (
-      b.name.toLowerCase().includes(term) ||
+      (b?.name || '').toLowerCase().includes(term) ||
       b.ownerName.toLowerCase().includes(term) ||
       b.phone.includes(term) ||
       b.id.toLowerCase().includes(term)
@@ -536,7 +536,7 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({ onBackToApp }) =
                               ID: {b.id}
                             </span>
                             <h3 className="font-black text-white text-base leading-tight mt-0.5">
-                              {b.name}
+                              {b?.name || 'Biashara'}
                             </h3>
                           </div>
                           <span
@@ -684,7 +684,7 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({ onBackToApp }) =
                   Weka Upya Password ya Boss
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Duka: <span className="text-white font-bold">{selectedBiz.name}</span>
+                  Duka: <span className="text-white font-bold">{selectedBiz?.name || 'Biashara'}</span>
                 </p>
               </div>
               <button
@@ -715,7 +715,7 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({ onBackToApp }) =
                   required
                   value={confirmedShopName}
                   onChange={(e) => setConfirmedShopName(e.target.value)}
-                  placeholder={`Andika: ${selectedBiz.name}`}
+                  placeholder={`Andika: ${selectedBiz?.name || ''}`}
                   className="w-full px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500 transition"
                 />
               </div>

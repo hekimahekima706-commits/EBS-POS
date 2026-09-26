@@ -62,7 +62,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
           />
           <div className="hidden sm:block">
             <h1 className="text-sm font-bold text-white leading-tight flex items-center gap-1.5 truncate max-w-[160px] lg:max-w-none">
-              <span>{profile.name}</span>
+              <span>{profile?.name || 'EBS SMART BIZ'}</span>
             </h1>
             <p className="text-[11px] text-slate-400 font-mono">
               TIN: {profile.tin || '134-589-201'} • TZS
@@ -174,7 +174,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
             </>
           )}
           <span className="text-[10px] text-slate-400 font-mono hidden xl:inline border-l border-slate-700 pl-1.5">
-            {getLocalDeviceIdentity().name.split(' ')[0]}
+            {(getLocalDeviceIdentity()?.name || 'Kifaa').split(' ')[0]}
           </span>
         </button>
 
@@ -277,11 +277,11 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
             className="flex items-center space-x-2 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition"
           >
             <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs">
-              {currentUser?.name ? currentUser.name.charAt(0) : 'U'}
+              {(currentUser?.name || 'U').charAt(0).toUpperCase()}
             </div>
             <div className="hidden sm:block text-left">
               <div className="font-bold text-white leading-tight truncate max-w-[100px]">
-                {currentUser?.name ? currentUser.name.split(' ')[0] : 'Mtumiaji'}
+                {(currentUser?.name || 'Mtumiaji').split(' ')[0]}
               </div>
               <div className="text-[10px] text-emerald-400 font-bold uppercase">
                 {currentUser?.role || 'Staff'}
@@ -321,7 +321,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
                       }`}
                     >
                       <div className="truncate">
-                        <div className="font-semibold">{u.name}</div>
+                        <div className="font-semibold">{u?.name || u?.username || 'Mtumiaji'}</div>
                         <div className="text-[10px] text-slate-400 capitalize">{u.role}</div>
                       </div>
                       {isCurrent && <Check className="w-3.5 h-3.5 text-emerald-400" />}

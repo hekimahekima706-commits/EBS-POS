@@ -145,7 +145,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
 
   // Revoke device
   const handleRevokeDevice = async (device: BusinessDevice) => {
-    if (!window.confirm(`Una uhakika unataka KUFUTA IDHINI ya kifaa "${device.name}" (${device.id})? Mtumiaji hataweza tena kuingia au kufanya mauzo kupitia kifaa hiki.`)) {
+    if (!window.confirm(`Una uhakika unataka KUFUTA IDHINI ya kifaa "${device?.name || 'Kifaa'}" (${device?.id})? Mtumiaji hataweza tena kuingia au kufanya mauzo kupitia kifaa hiki.`)) {
       return;
     }
 
@@ -158,7 +158,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
         }
       });
       if (res.ok) {
-        logAction('DEVICE_REVOKED', `Idhini ya kifaa ${device.name} (${device.id}) imefutwa`, 'device', device.id);
+        logAction('DEVICE_REVOKED', `Idhini ya kifaa ${device?.name || 'Kifaa'} (${device?.id}) imefutwa`, 'device', device?.id);
         await fetchDevices();
       }
     } catch (err) {
@@ -168,13 +168,13 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
 
   // Switch Active Simulated Device
   const handleSwitchSimulatorDevice = (device: BusinessDevice) => {
-    setLocalDeviceIdentity(device.id, device.name, device.platform);
+    setLocalDeviceIdentity(device?.id || '', device?.name || 'Kifaa', device?.platform || 'windows');
     setCurrentDevice({
       id: device.id,
-      name: device.name,
+      name: device?.name || 'Kifaa',
       platform: device.platform
     });
-    logAction('DEVICE_SWITCHED_SIMULATOR', `Kifaa cha majaribio kimebadilishwa kuwa: ${device.name} (${device.platform})`, 'setting');
+    logAction('DEVICE_SWITCHED_SIMULATOR', `Kifaa cha majaribio kimebadilishwa kuwa: ${device?.name || 'Kifaa'} (${device?.platform || ''})`, 'setting');
   };
 
   // Register New Device
@@ -197,7 +197,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
           name: newDeviceName,
           platform: newDevicePlatform,
           assignedUserId: assignedUserObj?.id,
-          assignedUserName: assignedUserObj ? `${assignedUserObj.name} (${assignedUserObj.role})` : undefined,
+          assignedUserName: assignedUserObj ? `${assignedUserObj?.name || 'Mtumiaji'} (${assignedUserObj?.role || 'staff'})` : undefined,
           assignedRole: assignedUserObj?.role
         })
       });
@@ -381,7 +381,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
           <div>
             <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Kifaa Hiki (Current)</div>
-            <div className="text-sm font-bold text-white mt-1 truncate max-w-[130px]">{currentDevice.name}</div>
+            <div className="text-sm font-bold text-white mt-1 truncate max-w-[130px]">{currentDevice?.name || 'Kifaa hiki'}</div>
             <div className="text-[11px] text-slate-400 font-mono mt-0.5">{currentDevice.id}</div>
           </div>
           <div className="w-10 h-10 rounded-xl bg-purple-950/60 border border-purple-800 text-purple-400 flex items-center justify-center">
@@ -429,7 +429,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
                   )}
                 </div>
                 <div className="text-xs font-semibold text-white truncate leading-tight">
-                  {dev.name}
+                  {dev?.name || 'Kifaa'}
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1 truncate">
                   {dev.assignedUserName || 'Hajapangiwa'}
@@ -505,7 +505,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
                           </div>
                           <div>
                             <div className="font-bold text-white flex items-center gap-1.5">
-                              <span>{device.name}</span>
+                              <span>{device?.name || 'Kifaa'}</span>
                               {isCurrent && (
                                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-600 text-white font-bold">
                                   Hiki
@@ -571,7 +571,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
                           <button
                             onClick={() => {
                               setSelectedDevice(device);
-                              setEditDeviceName(device.name);
+                              setEditDeviceName(device?.name || '');
                               setEditDevicePlatform(device.platform);
                               setShowEditModal(true);
                             }}
@@ -706,7 +706,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
                   <option value="">-- Hakuna (Kifaa cha Pamoja) --</option>
                   {users.map(u => (
                     <option key={u.id} value={u.id}>
-                      {u.name} ({u.role.toUpperCase()})
+                      {u?.name || u?.username || 'Mtumiaji'} ({u?.role ? u.role.toUpperCase() : 'STAFF'})
                     </option>
                   ))}
                 </select>

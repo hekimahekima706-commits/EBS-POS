@@ -80,7 +80,7 @@ export const BarModeView: React.FC = () => {
 
     recordBarVariance({
       productId: selectedAuditProduct.id,
-      productName: selectedAuditProduct.name,
+      productName: selectedAuditProduct?.name || 'Bidhaa',
       expectedStockBottles: expectedBottles,
       expectedOpenBottleMl: expectedMl,
       physicalStockBottles: countedBottles,
@@ -97,7 +97,7 @@ export const BarModeView: React.FC = () => {
       openBottleRemainingMl: countedMl,
     });
 
-    alert(`Ukaguzi wa ${selectedAuditProduct.name} umehifadhiwa kikamilifu! Tofauti: ${varianceMl} ml.`);
+    alert(`Ukaguzi wa ${selectedAuditProduct?.name || 'Bidhaa'} umehifadhiwa kikamilifu! Tofauti: ${varianceMl} ml.`);
     setAuditNotes('');
   };
 
@@ -125,7 +125,7 @@ export const BarModeView: React.FC = () => {
     );
 
     setShowSpillageModal(false);
-    alert(`Spillage ya ${ml}ml ya ${spillProduct.name} imerekodiwa.`);
+    alert(`Spillage ya ${ml}ml ya ${spillProduct?.name || 'Bidhaa'} imerekodiwa.`);
   };
 
   return (
@@ -278,7 +278,7 @@ export const BarModeView: React.FC = () => {
                   <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
                     <button
                       onClick={() => {
-                        if (confirm(`Je, unataka kufungua chupa mpya ya ${p.name} kutoka stoo?`)) {
+                        if (confirm(`Je, unataka kufungua chupa mpya ya ${p?.name || 'Bidhaa'} kutoka stoo?`)) {
                           if (p.stockQty <= 0) {
                             alert('Hakuna chupa iliyobaki stoo!');
                             return;

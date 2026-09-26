@@ -161,7 +161,7 @@ export const InventoryView: React.FC = () => {
     return targetList.filter((p) => {
       const q = searchQuery.toLowerCase();
       const matchesSearch =
-        p.name.toLowerCase().includes(q) ||
+        (p?.name || '').toLowerCase().includes(q) ||
         p.sku.toLowerCase().includes(q) ||
         p.barcode.includes(searchQuery) ||
         (p.brandName && p.brandName.toLowerCase().includes(q)) ||
@@ -254,7 +254,7 @@ export const InventoryView: React.FC = () => {
   const handleOpenEditModal = (p: Product) => {
     setEditingProduct(p);
     setFormData({
-      name: p.name,
+      name: p?.name || '',
       category: p.category,
       sku: p.sku,
       barcode: p.barcode,
@@ -373,13 +373,13 @@ export const InventoryView: React.FC = () => {
   const handleConfirmArchive = () => {
     if (!archiveTargetProduct) return;
     deleteProduct(archiveTargetProduct.id);
-    showToast(`Bidhaa ya "${archiveTargetProduct.name}" imeondolewa kwenye orodha ya mauzo na kuhifadhiwa.`);
+    showToast(`Bidhaa ya "${archiveTargetProduct?.name || 'Bidhaa'}" imeondolewa kwenye orodha ya mauzo na kuhifadhiwa.`);
     setArchiveTargetProduct(null);
   };
 
   const handleRestoreProduct = (p: Product) => {
     restoreProduct(p.id);
-    showToast(`Bidhaa ya "${p.name}" imerejeshwa kutumika kwenye mauzo na stoo.`);
+    showToast(`Bidhaa ya "${p?.name || 'Bidhaa'}" imerejeshwa kutumika kwenye mauzo na stoo.`);
   };
 
   const handleConfirmHardDelete = () => {
@@ -758,7 +758,7 @@ export const InventoryView: React.FC = () => {
                         >
                           <td className="py-3 px-4">
                             <div className="font-bold text-slate-900 dark:text-white flex items-center flex-wrap gap-1.5">
-                              <span>{p.name}</span>
+                              <span>{p?.name || 'Bidhaa'}</span>
                               {p.productType === 'bar_bottle' && (
                                 <span className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 px-1.5 py-0.2 rounded font-bold">
                                   🥃 {p.bottleSizeMl}ml
@@ -1404,7 +1404,7 @@ export const InventoryView: React.FC = () => {
                       >
                         <div className="space-y-0.5">
                           <div className="font-black text-slate-900 dark:text-white">
-                            {u.name}{' '}
+                            {(u?.name || 'Kipimo')}{' '}
                             <span className="text-slate-500 font-normal">
                               ({u.unitsPerPackage} {formData.unit || 'units'} kwa kifungashio)
                             </span>
@@ -1572,7 +1572,7 @@ export const InventoryView: React.FC = () => {
                   Marekebisho ya Stoo
                 </h3>
                 <div className="text-xs text-emerald-600 font-bold">
-                  {adjustTargetProduct.name} (Iliyopo: {adjustTargetProduct.stockQty} {adjustTargetProduct.unit})
+                  {adjustTargetProduct?.name || 'Bidhaa'} (Iliyopo: {adjustTargetProduct?.stockQty || 0} {adjustTargetProduct?.unit || ''})
                 </div>
               </div>
               <button
@@ -1676,7 +1676,7 @@ export const InventoryView: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-black text-sm text-slate-900 dark:text-white">
-                  Ondoa "{archiveTargetProduct.name}"?
+                  Ondoa "{archiveTargetProduct?.name || 'Bidhaa'}"?
                 </h3>
                 <div className="text-[11px] text-slate-500">
                   SKU: {archiveTargetProduct.sku} • Stoo: {archiveTargetProduct.stockQty} {archiveTargetProduct.unit}
@@ -1729,7 +1729,7 @@ export const InventoryView: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-black text-sm text-slate-900 dark:text-white">
-                  Futa Kabisa "{deleteTargetProduct.name}"?
+                  Futa Kabisa "{deleteTargetProduct?.name || 'Bidhaa'}"?
                 </h3>
                 <div className="text-[11px] text-slate-500">Kitendo hiki hakiwezi kurudishwa</div>
               </div>

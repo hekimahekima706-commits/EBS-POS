@@ -61,7 +61,7 @@ import {
   isSimulatedOffline
 } from '../utils/syncEngine';
 
-interface AuthResponse {
+export interface AuthResponse {
   success: boolean;
   message?: string;
   user?: User;
@@ -216,6 +216,7 @@ interface AppContextType {
   clearDemoData: () => { success: boolean; backupJson: string };
   startFreshBusiness: (details?: Partial<BusinessProfile>) => { success: boolean; backupJson: string };
 
+  isLoading: boolean;
   // Calculated Metrics
   todayStats: {
     salesRevenue: number;
@@ -237,6 +238,7 @@ const STORAGE_KEY = 'ebs_tanzania_data_v1_1';
 const AppContext = createContext<AppContextType | null>(null);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   // Safe State Initializers with Database Migration
   const [profile, setProfile] = useState<BusinessProfile>(() => {
     try {
@@ -794,7 +796,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (updates.taxRate !== undefined) next.vatRate = updates.taxRate;
       return next;
     });
-    logAction('PROFILE_UPDATED', `Taarifa za biashara zimesasishwa: ${updates.name || ''}`, 'setting');
+    logAction('PROFILE_UPDATED', `Taarifa za biashara zimesasishwa: ${updates?.name || profile?.name || ''}`, 'setting');
   }, [logAction]);
 
   const setBusinessMode = useCallback((mode: BusinessMode) => {
@@ -816,7 +818,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const ownerPassHash = await hashPassword(ownerData.password);
     const ownerUser: User = {
       id: `usr-owner-${Date.now()}`,
-      name: ownerData.name,
+      name: ownerData?.name || 'Mmiliki',
       username: ownerData.username.toLowerCase().trim(),
       phone: ownerData.phone,
       role: 'owner',
@@ -854,11 +856,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setProfile((prev) => ({
       ...prev,
       ...profileUpdates,
-      ownerName: ownerData.name,
+      ownerName: ownerData?.name || 'Mmiliki',
       setupCompleted: true,
     }));
 
-    logAction('SETUP_COMPLETED', `Usanidi wa kwanza umekamilika na mmiliki ${ownerData.name} kusajiliwa.`, 'setting');
+    logAction('SETUP_COMPLETED', `Usanidi wa kwanza umekamilika na mmiliki ${ownerData?.name || 'Mmiliki'} kusajiliwa.`, 'setting');
   }, [logAction]);
 
   const resetSetupWizard = useCallback(() => {
@@ -882,7 +884,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     if (!targetUser.active) {
-      logAction('LOGIN_BLOCKED', `Mtumiaji aliyefungwa amejaribu kuingia: ${targetUser.name}`, 'auth', targetUser.id);
+      logAction('LOGIN_BLOCKED', `Mtumiaji aliyefungwa amejaribu kuingia: ${targetUser?.name || 'Mtumiaji'}`, 'auth', targetUser?.id);
       return { success: false, message: 'Akaunti hii imesitishwa. Wasiliana na Mwenye Biashara.' };
     }
 
@@ -907,7 +909,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         prev.map((u) => (u.id === targetUser.id ? { ...u, failedLoginAttempts: newAttempts, lockoutUntil: lockoutTime } : u))
       );
 
-      logAction('LOGIN_FAILED_PASSWORD', `Password isiyo sahihi kwa: ${targetUser.name} (Majaribio: ${newAttempts})`, 'auth', targetUser.id);
+      logAction('LOGIN_FAILED_PASSWORD', `Password isiyo sahihi kwa: ${targetUser?.name || 'Mtumiaji'} (Majaribio: ${newAttempts})`, 'auth', targetUser?.id);
       return { success: false, message: 'Neno la siri (Password) si sahihi.' };
     }
 
@@ -927,7 +929,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (updatedUser.mustChangePassword) {
       setIsAuthenticated(false);
       setIsLocked(false);
-      logAction('LOGIN_TEMP_PASSWORD', `Mtumiaji ${targetUser.name} ameingia kwa neno la muda na anaelekezwa kuweka neno jipya la siri`, 'auth', targetUser.id);
+      logAction('LOGIN_TEMP_PASSWORD', `Mtumiaji ${targetUser?.name || 'Mtumiaji'} ameingia kwa neno la muda na anaelekezwa kuweka neno jipya la siri`, 'auth', targetUser?.id);
       return {
         success: true,
         user: updatedUser,
@@ -949,7 +951,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newSession: UserSession = {
       id: `sess-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       userId: updatedUser.id,
-      userName: updatedUser.name,
+      userName: updatedUser?.name || updatedUser?.username || 'Mtumiaji',
       userRole: updatedUser.role,
       deviceInfo: navigator.userAgent.includes('Mobile') ? 'Mobile Terminal' : 'Desktop / POS Register',
       loginTime: new Date().toISOString(),
@@ -961,7 +963,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveSession(newSession);
     setSessions((prev) => [newSession, ...prev.slice(0, 19)]); // keep last 20
 
-    logAction('LOGIN_SUCCESS', `Mtumiaji ${targetUser.name} (${targetUser.role}) ameingia kwenye mfumo`, 'auth', targetUser.id);
+    logAction('LOGIN_SUCCESS', `Mtumiaji ${targetUser?.name || 'Mtumiaji'} (${targetUser?.role || 'user'}) ameingia kwenye mfumo`, 'auth', targetUser?.id);
 
     return {
       success: true,
@@ -1013,7 +1015,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (otherUser) {
       setCurrentUser(otherUser);
       setIsLocked(false);
-      logAction('SESSION_SWITCH_UNLOCKED', `Mfumo umefunguliwa na mtumiaji mwingine: ${otherUser.name}`, 'auth', otherUser.id);
+      logAction('SESSION_SWITCH_UNLOCKED', `Mfumo umefunguliwa na mtumiaji mwingine: ${otherUser?.name || 'Mtumiaji'}`, 'auth', otherUser?.id);
       return { success: true };
     }
 
@@ -1061,7 +1063,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newSession: UserSession = {
       id: `sess-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       userId: updated.id,
-      userName: updated.name,
+      userName: updated?.name || updated?.username || 'Mtumiaji',
       userRole: updated.role,
       deviceInfo: navigator.userAgent.includes('Mobile') ? 'Mobile Terminal' : 'Desktop / POS Register',
       loginTime: new Date().toISOString(),
@@ -1108,7 +1110,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setUsers((prev) => prev.map((u) => (u.id === userId ? updated : u)));
-    logAction('USER_PASSWORD_RESET', `Neno la siri la muda limewekwa kwa ${targetUser.name} na ${currentUser.name}`, 'user', userId);
+    logAction('USER_PASSWORD_RESET', `Neno la siri la muda limewekwa kwa ${targetUser?.name || 'Mtumiaji'} na ${currentUser?.name || 'Admin'}`, 'user', userId);
 
     return {
       success: true,
@@ -1160,16 +1162,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: 'PIN au Password ya Msimamizi si sahihi.' };
     }
 
-    logAction('APPROVAL_GRANTED', `Kitendo: "${actionDesc}" kimeidhinishwa na ${approver.name} (${approver.role})`, 'auth', approver.id);
+    logAction('APPROVAL_GRANTED', `Kitendo: "${actionDesc}" kimeidhinishwa na ${approver?.name || 'Meneja'} (${approver?.role || 'manager'})`, 'auth', approver?.id);
     return { success: true, approver };
   }, [users, logAction]);
 
   const addUser = useCallback(async (userData: Partial<Omit<User, 'id' | 'createdAt' | 'passwordHash'>> & { name: string; phone: string; role: UserRole; username?: string; initialPassword?: string }): Promise<User> => {
     const cleanPass = userData.initialPassword || 'Ebs12345!';
     const passHash = await hashPassword(cleanPass);
-    const generatedUsername = (userData.username || userData.name.toLowerCase().replace(/[^a-z0-9]/gi, '')).toLowerCase().trim();
+    const safeName = userData?.name || userData?.username || 'Mtumiaji';
+    const generatedUsername = (userData?.username || safeName.toLowerCase().replace(/[^a-z0-9]/gi, '')).toLowerCase().trim();
     const newUser: User = {
-      name: userData.name,
+      name: safeName,
       phone: userData.phone,
       role: userData.role,
       pin: userData.pin || '1234',
@@ -1208,7 +1211,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setUsers((prev) => [...prev, newUser]);
-    logAction('USER_CREATED', `Mtumiaji mpya ${newUser.name} (${newUser.role}) ameongezwa`, 'user', newUser.id);
+    logAction('USER_CREATED', `Mtumiaji mpya ${newUser?.name || 'Mtumiaji'} (${newUser?.role || 'staff'}) ameongezwa`, 'user', newUser?.id);
     return newUser;
   }, [logAction]);
 
@@ -1234,7 +1237,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((u) => {
         if (u.id === id) {
           const nextActive = !u.active;
-          logAction('USER_STATUS_TOGGLE', `Mtumiaji ${u.name} ${nextActive ? 'Amefunguliwa' : 'Amefungwa'}`, 'user', id);
+          logAction('USER_STATUS_TOGGLE', `Mtumiaji ${u?.name || 'Mtumiaji'} ${nextActive ? 'Amefunguliwa' : 'Amefungwa'}`, 'user', id);
           return { ...u, active: nextActive };
         }
         return u;
@@ -1249,7 +1252,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `prod-${Date.now()}`,
     };
     setProducts((prev) => [newProd, ...prev]);
-    logAction('PRODUCT_ADDED', `Bidhaa mpya: ${newProd.name} (Bei: ${newProd.sellingPrice})`, 'product', newProd.id);
+    logAction('PRODUCT_ADDED', `Bidhaa mpya: ${newProd?.name || 'Bidhaa'} (Bei: ${newProd?.sellingPrice || 0})`, 'product', newProd?.id);
     return newProd;
   }, [logAction]);
 
@@ -1313,7 +1316,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const movement: StockMovement = {
       id: `sm-${Date.now()}`,
       productId,
-      productName: product.name,
+      productName: product?.name || 'Bidhaa',
       type,
       quantity: quantityDelta,
       previousStock,
@@ -1328,7 +1331,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setStockMovements((prev) => [movement, ...prev]);
-    logAction('STOCK_ADJUSTED', `${product.name}: Hesabu imerekebishwa toka ${previousStock} hadi ${newStock} (${reason})`, 'stock', productId);
+    logAction('STOCK_ADJUSTED', `${product?.name || 'Bidhaa'}: Hesabu imerekebishwa toka ${previousStock} hadi ${newStock} (${reason})`, 'stock', productId);
 
     // Queue in Offline-First Sync Engine
     const device = getLocalDeviceIdentity();
@@ -1431,7 +1434,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       patientPhone: options?.patientPhone,
       doctorName: options?.doctorName,
       prescriptionNumber: options?.prescriptionNumber,
-      pharmacistName: options?.pharmacistName || (isPharmacyDispense ? currentUser.name : undefined),
+      pharmacistName: options?.pharmacistName || (isPharmacyDispense ? (currentUser?.name || 'Mfamasia') : undefined),
       isDispensing: isPharmacyDispense,
     };
 
@@ -1572,14 +1575,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ...s,
               status: 'refunded',
               refundReason: reason,
-              refundedBy: approvedBy ? `${currentUser.name} (Idhinishwa na ${approvedBy})` : currentUser.name,
+              refundedBy: approvedBy ? `${currentUser?.name || 'Mtumiaji'} (Idhinishwa na ${approvedBy})` : (currentUser?.name || 'Mtumiaji'),
               refundedAt: new Date().toISOString(),
             }
           : s
       )
     );
     logAction('SALE_REFUNDED', `Risiti imerejeshwa: ${saleId} (Sababu: ${reason})${approvedBy ? ` [Idhini: ${approvedBy}]` : ''}`, 'sale', saleId);
-  }, [currentUser.name, logAction]);
+  }, [currentUser?.name, logAction]);
 
   const cancelSale = useCallback((saleId: string, reason: string, approvedBy?: string) => {
     setSales((prev) =>
@@ -1589,14 +1592,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ...s,
               status: 'cancelled',
               refundReason: reason,
-              refundedBy: approvedBy ? `${currentUser.name} (Idhinishwa na ${approvedBy})` : currentUser.name,
+              refundedBy: approvedBy ? `${currentUser?.name || 'Mtumiaji'} (Idhinishwa na ${approvedBy})` : (currentUser?.name || 'Mtumiaji'),
               refundedAt: new Date().toISOString(),
             }
           : s
       )
     );
     logAction('SALE_CANCELLED', `Risiti imefutwa: ${saleId} (Sababu: ${reason})${approvedBy ? ` [Idhini: ${approvedBy}]` : ''}`, 'sale', saleId);
-  }, [currentUser.name, logAction]);
+  }, [currentUser?.name, logAction]);
 
   // Customers & Debts
   const addCustomer = useCallback((customerData: Omit<Customer, 'id' | 'createdAt' | 'currentDebt' | 'totalSpent' | 'transactionCount'>) => {
@@ -1619,7 +1622,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setCustomers((prev) => [newCustomer, ...prev]);
-    logAction('CUSTOMER_ADDED', `Mteja mpya: ${newCustomer.name} (${newCustomer.phone})`, 'debt', newCustomer.id);
+    logAction('CUSTOMER_ADDED', `Mteja mpya: ${newCustomer?.name || 'Mteja'} (${newCustomer?.phone || ''})`, 'debt', newCustomer?.id);
     return { customer: newCustomer, isDuplicate: false };
   }, [customers, logAction]);
 
@@ -1639,7 +1642,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `dp-${Date.now()}`,
       amount,
       date: new Date().toISOString(),
-      receivedBy: currentUser.name,
+      receivedBy: currentUser?.name || 'Mtumiaji',
       method,
       reference,
       note,
@@ -1669,7 +1672,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     logAction('DEBT_PAYMENT_RECEIVED', `Malipo ya deni TZS ${amount.toLocaleString()} yamepokelewa kutoka ${debt.customerName}`, 'debt', debtId);
-  }, [debts, currentUser.name, logAction]);
+  }, [debts, currentUser?.name, logAction]);
 
   // Suppliers
   const addSupplier = useCallback((supplierData: Omit<Supplier, 'id' | 'createdAt' | 'amountOwed'>) => {
@@ -1680,7 +1683,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     };
     setSuppliers((prev) => [newSupplier, ...prev]);
-    logAction('SUPPLIER_ADDED', `Msambazaji mpya: ${newSupplier.name}`, 'stock', newSupplier.id);
+    logAction('SUPPLIER_ADDED', `Msambazaji mpya: ${newSupplier?.name || 'Msambazaji'}`, 'stock', newSupplier?.id);
   }, [logAction]);
 
   const updateSupplier = useCallback((id: string, updates: Partial<Supplier>) => {
@@ -1722,7 +1725,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...recordData,
       id: `bv-${Date.now()}`,
       date: new Date().toISOString().split('T')[0],
-      recordedBy: `${currentUser.name} (${currentUser.role})`,
+      recordedBy: `${currentUser?.name || 'Mtumiaji'} (${currentUser?.role || 'staff'})`,
     };
     setBarVariances((prev) => [newRecord, ...prev]);
     logAction('BAR_VARIANCE_RECORDED', `Ukaguzi wa Bar: ${newRecord.productName} - Tofauti ml ${newRecord.varianceMl}`, 'bar', newRecord.id);
@@ -1742,7 +1745,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `cam-${Date.now()}`,
     };
     setCameras((prev) => [...prev, newCam]);
-    logAction('CAMERA_ADDED', `Kamera mpya imeunganishwa: ${newCam.name} (${newCam.ipOrRtsp})`, 'camera', newCam.id);
+    logAction('CAMERA_ADDED', `Kamera mpya imeunganishwa: ${newCam?.name || 'Kamera'} (${newCam?.ipOrRtsp || ''})`, 'camera', newCam?.id);
   }, [logAction]);
 
   const updateCamera = useCallback((id: string, updates: Partial<CCTVCamera>) => {
@@ -1766,15 +1769,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logCameraAccess = useCallback((cameraId: string) => {
     const cam = cameras.find((c) => c.id === cameraId);
-    logAction('CAMERA_VIEWED', `Mtumiaji ${currentUser.name} ameangalia live feed ya ${cam?.name || cameraId}`, 'camera', cameraId);
-  }, [cameras, currentUser.name, logAction]);
+    logAction('CAMERA_VIEWED', `Mtumiaji ${currentUser?.name || 'Mtumiaji'} ameangalia live feed ya ${cam?.name || cameraId}`, 'camera', cameraId);
+  }, [cameras, currentUser?.name, logAction]);
 
   // Database Backup & Restore
   const exportDatabaseJson = useCallback((): string => {
     const data = {
       version: '1.3.0',
       exportedAt: new Date().toISOString(),
-      exportedBy: currentUser.name,
+      exportedBy: currentUser?.name || 'Mtumiaji',
       profile,
       users: users.map((u) => ({ ...u, passwordHash: u.passwordHash })),
       products,
@@ -1792,7 +1795,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     logAction('DATABASE_BACKUP_CREATED', 'Nakala ya mfumo (JSON Backup) imepakuliwa', 'backup');
     return JSON.stringify(data, null, 2);
-  }, [currentUser.name, profile, users, products, customers, debts, suppliers, expenses, sales, stockMovements, tables, barVariances, cameras, cameraEvents, auditLogs, logAction]);
+  }, [currentUser?.name, profile?.name, users, products, customers, debts, suppliers, expenses, sales, stockMovements, tables, barVariances, cameras, cameraEvents, auditLogs, logAction]);
 
   const importDatabaseJson = useCallback((jsonString: string): boolean => {
     try {
@@ -1874,13 +1877,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }));
     }
 
-    logAction('FRESH_BUSINESS_STARTED', `Biashara mpya imeanzishwa rasmi: ${details?.name || profile.name || 'EBS Business'}. Mfumo umeanza bila data za zamani.`, 'setting');
+    logAction('FRESH_BUSINESS_STARTED', `Biashara mpya imeanzishwa rasmi: ${details?.name || profile?.name || 'EBS Business'}. Mfumo umeanza bila data za zamani.`, 'setting');
 
     return {
       success: true,
       backupJson,
     };
-  }, [exportDatabaseJson, profile.name, logAction]);
+  }, [exportDatabaseJson, profile?.name, logAction]);
 
   const resetToDemoData = useCallback(() => {
     setProfile(INITIAL_BUSINESS_PROFILE);
@@ -1945,6 +1948,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [sales, expenses, products, debts]);
 
   const value: AppContextType = {
+    isLoading,
     profile,
     businessProfile: profile,
     updateProfile,

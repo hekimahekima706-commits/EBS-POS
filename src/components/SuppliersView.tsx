@@ -36,7 +36,7 @@ export const SuppliersView: React.FC = () => {
 
   const filteredSuppliers = suppliers.filter(
     (s) =>
-      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.contactPerson?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.phone.includes(searchQuery)
   );
@@ -75,7 +75,7 @@ export const SuppliersView: React.FC = () => {
 
     recordSupplierPayment(selectedSupplier.id, amount, payNote || undefined);
     setShowPayModal(false);
-    alert(`Malipo ya TZS ${amount.toLocaleString()} kwa msambazaji ${selectedSupplier.name} yamehifadhiwa!`);
+    alert(`Malipo ya TZS ${amount.toLocaleString()} kwa msambazaji ${selectedSupplier?.name || 'Msambazaji'} yamehifadhiwa!`);
   };
 
   return (
@@ -149,7 +149,7 @@ export const SuppliersView: React.FC = () => {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredSuppliers.map((s) => (
                 <tr key={s.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-                  <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">{s.name}</td>
+                  <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">{s?.name || 'Msambazaji'}</td>
                   <td className="py-3 px-4 text-slate-600 dark:text-slate-400">
                     {s.contactPerson || '-'}
                   </td>
@@ -301,7 +301,7 @@ export const SuppliersView: React.FC = () => {
           >
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="font-black text-sm text-slate-900 dark:text-white">
-                Kumlipa Msambazaji: {selectedSupplier.name}
+                Kumlipa Msambazaji: {selectedSupplier?.name || ''}
               </h3>
               <button
                 type="button"

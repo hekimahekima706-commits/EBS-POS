@@ -717,3 +717,12 @@ export interface PasswordResetToken {
   createdAt: string;
   expiresAt: string;
 }
+
+
+export interface AuthResponse {
+  success: boolean;
+  message?: string;
+  user?: User;
+  mustChangePassword?: boolean;
+  temporaryPassword?: string;
+}

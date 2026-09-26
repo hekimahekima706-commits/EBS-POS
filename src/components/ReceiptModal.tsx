@@ -104,7 +104,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                   <span>DUKA LA DAWA NA FAMASI (PHARMACY)</span>
                 </div>
               )}
-              <h2 className="font-black text-sm uppercase tracking-wider">{profile.name}</h2>
+              <h2 className="font-black text-sm uppercase tracking-wider">{profile?.name || 'EBS SMART BIZ'}</h2>
               <p className="text-[11px] text-slate-600">{profile.tagline}</p>
               <p className="text-[11px] text-slate-600 mt-0.5">{profile.address}</p>
               <p className="text-[11px] text-slate-600">Simu: {profile.phone}</p>

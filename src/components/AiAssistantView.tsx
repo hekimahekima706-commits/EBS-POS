@@ -71,8 +71,8 @@ export const AiAssistantView: React.FC = () => {
 
     // Business Data Context to inject into AI prompt
     const businessContext = {
-      businessName: businessProfile.name,
-      currency: businessProfile.currency,
+      businessName: businessProfile?.name || 'Biashara',
+      currency: businessProfile?.currency || 'TZS',
       todaySalesCount: todayStats.transactionsCount,
       todayRevenue: todayStats.salesRevenue,
       todayProfit: todayStats.grossProfit,

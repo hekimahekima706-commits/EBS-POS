@@ -80,7 +80,7 @@ export const EmployeesView: React.FC = () => {
 
       setResetMessage({
         type: 'success',
-        text: `Taarifa za mtumishi "${selectedEmployeeForReset.name}" zimesasishwa kwa ufanisi!`
+        text: `Taarifa za mtumishi "${selectedEmployeeForReset?.name || 'Mtumiaji'}" zimesasishwa kwa ufanisi!`
       });
 
       setTimeout(() => {
@@ -186,11 +186,11 @@ export const EmployeesView: React.FC = () => {
                     <div className="flex items-start justify-between">
                       <div className="flex items-center space-x-3">
                         <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold flex items-center justify-center text-sm">
-                          {u.name.charAt(0)}
+                          {(u?.name || 'U').charAt(0).toUpperCase()}
                         </div>
                         <div>
                           <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
-                            <span>{u.name}</span>
+                            <span>{u?.name || u?.username || 'Mtumiaji'}</span>
                             {isCurrentUser && (
                               <span className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.2 rounded font-bold">
                                 Wewe
@@ -505,7 +505,7 @@ export const EmployeesView: React.FC = () => {
                   </h3>
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
-                  Mtumishi: <span className="font-bold text-slate-800 dark:text-slate-200">{selectedEmployeeForReset.name}</span> ({selectedEmployeeForReset.role.toUpperCase()})
+                  Mtumishi: <span className="font-bold text-slate-800 dark:text-slate-200">{selectedEmployeeForReset?.name || 'Mtumiaji'}</span> ({selectedEmployeeForReset?.role ? selectedEmployeeForReset.role.toUpperCase() : 'STAFF'})
                 </p>
               </div>
               <button

@@ -318,7 +318,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   className="p-3 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 flex items-center justify-between text-xs"
                 >
                   <div>
-                    <div className="font-bold text-slate-900 dark:text-white">{p.name}</div>
+                    <div className="font-bold text-slate-900 dark:text-white">{p?.name || 'Bidhaa'}</div>
                     <div className="text-[11px] text-slate-500">
                       Kiwango cha chini: {p.minStock} {p.unit}
                     </div>
@@ -360,7 +360,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       #{idx + 1}
                     </span>
                     <div>
-                      <div className="font-bold text-slate-900 dark:text-white">{p.name}</div>
+                      <div className="font-bold text-slate-900 dark:text-white">{p?.name || 'Bidhaa'}</div>
                       <div className="text-[11px] text-slate-500">
                         {p.isServing ? '★ Shots za Vinywaji' : 'Bidhaa ya kawaida'}
                       </div>

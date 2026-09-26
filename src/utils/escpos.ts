@@ -260,7 +260,7 @@ export function generateEscPosReceipt(
   // 2. Business Header (Centered)
   builder.align('center');
   builder.bold(true).size(widthChars === 48 ? 2 : 1, 2);
-  builder.line(profile.name || 'EBS ENTERPRISE BIZ');
+  builder.line(profile?.name || 'EBS ENTERPRISE BIZ');
   builder.normalSize().bold(false);
 
   if (profile.tagline) {
@@ -426,7 +426,7 @@ export function generateEscPosReceipt(
 
   if (options.includeQr !== false) {
     // Generate QR containing invoice verification payload
-    const qrPayload = `EBS|INV:${sale.invoiceNo}|TOT:${sale.total}|DATE:${sale.timestamp}|BIZ:${profile.name || ''}`;
+    const qrPayload = `EBS|INV:${sale.invoiceNo}|TOT:${sale.total}|DATE:${sale.timestamp}|BIZ:${profile?.name || ''}`;
     builder.qrCode(qrPayload, widthChars === 48 ? 6 : 5);
   }
 
@@ -478,7 +478,7 @@ export function generateEscPosTextPreview(
   };
 
   lines.push(center('*** RISITI YA KIELEKTRONIKI (ESC/POS) ***'));
-  lines.push(center(profile.name || 'EBS ENTERPRISE BIZ'));
+  lines.push(center(profile?.name || 'EBS ENTERPRISE BIZ'));
   if (profile.tagline) lines.push(center(profile.tagline));
   if (profile.address) lines.push(center(profile.address));
   if (profile.phone) lines.push(center(`Simu: ${profile.phone}`));
@@ -620,7 +620,7 @@ export async function printViaWebBluetooth(
       return { success: false, error: 'Hakuna kifaa cha Bluetooth kilichochaguliwa.' };
     }
 
-    onStatusUpdate?.(`Inaunganisha na ${device.name || 'Printa ya Bluetooth'}...`);
+    onStatusUpdate?.(`Inaunganisha na ${device?.name || 'Printa ya Bluetooth'}...`);
     const server = await device.gatt.connect();
 
     onStatusUpdate?.('Inatafuta huduma ya kuchapa...');

@@ -91,7 +91,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onOpenSupe
       setUsernameOrPhone(demoUser.username);
       setPassword('');
       setErrorMsg(null);
-      setSuccessMsg(`Imechaguliwa akaunti ya ${demoUser.name} (${demoUser.role}). Ingiza neno la siri.`);
+      setSuccessMsg(`Imechaguliwa akaunti ya ${demoUser?.name || demoUser?.username || 'Mtumiaji'} (${demoUser?.role}). Ingiza neno la siri.`);
       const passInput = document.getElementById('login-password-input');
       if (passInput) passInput.focus();
     }
@@ -157,7 +157,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onOpenSupe
             />
           </div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white uppercase">
-            {profile.name || 'EBS SMART BIZ'}
+            {profile?.name || 'EBS SMART BIZ'}
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
             {profile.tagline || 'Mfumo Mahiri wa Mauzo, Stoo & Usimamizi wa Biashara'}
@@ -346,7 +346,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onOpenSupe
         {/* Security Footer */}
         <div className="mt-6 text-center text-xs text-slate-500 flex flex-col items-center justify-center gap-2">
           <div className="flex items-center justify-center gap-2">
-            <span>&copy; {new Date().getFullYear()} {profile.name || 'EBS SMART BIZ'}</span>
+            <span>&copy; {new Date().getFullYear()} {profile?.name || 'EBS SMART BIZ'}</span>
             <span>•</span>
             <span>Ulinzi wa Data & Usalama wa Biashara</span>
           </div>
@@ -402,7 +402,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onOpenSupe
             </h3>
             <p className="text-xs text-slate-400 mt-1">
               {mustChangeUser
-                ? `Habari ${mustChangeUser.name}, kwa usalama wa biashara unahitajika kuweka neno lako jipya la siri na PIN ya kufungulia kabla ya kuingia kwenye mfumo.`
+                ? `Habari ${mustChangeUser?.name || mustChangeUser?.username || 'Mtumiaji'}, kwa usalama wa biashara unahitajika kuweka neno lako jipya la siri na PIN ya kufungulia kabla ya kuingia kwenye mfumo.`
                 : 'Ingiza neno la siri la sasa na neno jipya la siri unalotaka.'}
             </p>
 

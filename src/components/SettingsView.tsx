@@ -98,7 +98,7 @@ export const SettingsView: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
 
   // Business Form State
-  const [bizName, setBizName] = useState(profile.name || '');
+  const [bizName, setBizName] = useState(profile?.name || '');
   const [bizOwner, setBizOwner] = useState(profile.ownerName || '');
   const [bizTagline, setBizTagline] = useState(profile.tagline || '');
   const [bizPhone, setBizPhone] = useState(profile.phone || '');
@@ -340,7 +340,7 @@ export const SettingsView: React.FC = () => {
       canManageUsers: editPermissions.canManageUsers,
     });
     setShowEditUserModal(false);
-    showToast(`Mamlaka ya ${selectedUser.name} yamesasishwa!`);
+    showToast(`Mamlaka ya ${selectedUser?.name || 'Mtumiaji'} yamesasishwa!`);
   };
 
   const handleOpenResetPass = (user: User) => {
@@ -355,7 +355,7 @@ export const SettingsView: React.FC = () => {
     const res = await resetUserPassword(selectedUser.id, adminResetPass);
     if (res.success) {
       setShowResetPassModal(false);
-      showToast(`Neno la siri la ${selectedUser.name} limewekwa upya!`);
+      showToast(`Neno la siri la ${selectedUser?.name || 'Mtumiaji'} limewekwa upya!`);
     } else {
       showToast(res.message || 'Imeshindikana kubadilisha.', true);
     }
@@ -386,7 +386,7 @@ export const SettingsView: React.FC = () => {
     const a = document.createElement('a');
     a.href = url;
     const dateStr = new Date().toISOString().split('T')[0];
-    a.download = `EBS_Backup_${profile.name.replace(/\s+/g, '_')}_${dateStr}.json`;
+    a.download = `EBS_Backup_${(profile?.name || 'Business').replace(/\s+/g, '_')}_${dateStr}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1849,7 +1849,7 @@ export const SettingsView: React.FC = () => {
           <div className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-black text-white">Mamlaka ya {selectedUser.name}</h3>
+                <h3 className="text-lg font-black text-white">Mamlaka ya {selectedUser?.name || 'Mtumiaji'}</h3>
                 <div className="text-xs text-slate-400">Jukumu: <strong>{selectedUser.role.toUpperCase()}</strong></div>
               </div>
               <button onClick={() => setShowEditUserModal(false)} className="text-slate-400 hover:text-white">
@@ -1921,7 +1921,7 @@ export const SettingsView: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-black text-white">Weka Neno Jipya la Siri</h3>
-                <div className="text-xs text-slate-400">Kwa mtumiaji: <strong>{selectedUser.name}</strong> (@{selectedUser.username})</div>
+                <div className="text-xs text-slate-400">Kwa mtumiaji: <strong>{selectedUser?.name || 'Mtumiaji'}</strong> (@{selectedUser?.username || ''})</div>
               </div>
               <button onClick={() => setShowResetPassModal(false)} className="text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />

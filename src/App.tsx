@@ -42,6 +42,7 @@ const MainAppContent: React.FC = () => {
     isAuthenticated,
     isLocked,
     currentUser,
+    isLoading,
     can,
     themeMode,
     primaryColor,
@@ -119,6 +120,16 @@ const MainAppContent: React.FC = () => {
           window.location.hash = '';
         }}
       />
+    );
+  }
+
+  // Loading Screen while state and business data hydrates
+  if (isLoading || !businessProfile) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white p-4">
+        <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-slate-300 font-medium tracking-wide">Inapakia mfumo wa biashara...</p>
+      </div>
     );
   }
 

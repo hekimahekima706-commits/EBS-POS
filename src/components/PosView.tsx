@@ -101,7 +101,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
   const [doctorName, setDoctorName] = useState('');
   const [prescriptionNumber, setPrescriptionNumber] = useState('');
   const [dispensingPharmacist, setDispensingPharmacist] = useState(
-    profile.supervisingPharmacist || currentUser?.name || 'Mfamasia Zamani'
+    profile?.supervisingPharmacist || currentUser?.name || 'Mfamasia Zamani'
   );
   const [expiredMedicineBlocked, setExpiredMedicineBlocked] = useState<Product | null>(null);
   const [dosageModalItemIdx, setDosageModalItemIdx] = useState<number | null>(null);
@@ -132,7 +132,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
     return products.filter((p) => {
       if (!isProductActive(p)) return false;
       const matchesSearch =
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.barcode.includes(searchQuery) ||
         p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (p.genericName && p.genericName.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -148,7 +148,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
     if (!customerSearchQuery.trim()) return customers.slice(0, 8);
     return customers.filter(
       (c) =>
-        c.name.toLowerCase().includes(customerSearchQuery.toLowerCase()) ||
+        (c?.name || '').toLowerCase().includes(customerSearchQuery.toLowerCase()) ||
         c.phone.includes(customerSearchQuery)
     );
   }, [customers, customerSearchQuery]);
@@ -204,7 +204,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
       } else {
         const newItem: SaleItem = {
           productId: product.id,
-          productName: `${product.name} [${pkg.name}]`,
+          productName: `${product?.name || 'Bidhaa'} [${pkg?.name || ''}]`,
           category: product.category,
           quantity: 1,
           unitPrice: pkg.sellingPrice,
@@ -213,7 +213,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
           total: pkg.sellingPrice,
           isPackage: true,
           packagingUnitId: pkg.id,
-          packagingUnitName: pkg.name,
+          packagingUnitName: pkg?.name || '',
           unitsPerPackage: pkg.unitsPerPackage,
           baseUnitEquivalentQuantity: pkg.unitsPerPackage,
         };
@@ -261,8 +261,8 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
         const newItem: SaleItem = {
           productId: product.id,
           productName: isServing
-            ? `${product.name} (Shot ${servingSize}ml)`
-            : product.name,
+            ? `${product?.name || 'Bidhaa'} (Shot ${servingSize}ml)`
+            : (product?.name || 'Bidhaa'),
           category: product.category,
           quantity: 1,
           unitPrice,
@@ -274,7 +274,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
           servingsCount: isServing ? servingMultiplier : undefined,
           // Pharmacy item specific fields
           isPharmacyItem: isMed,
-          brandName: product.brandName || product.name,
+          brandName: product?.brandName || product?.name || '',
           genericName: product.genericName,
           batchNumber: product.batchNumber,
           expiryDate: product.expiryDate,
@@ -635,7 +635,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
 
                       {/* Product Name */}
                       <div className="font-bold text-xs text-slate-900 dark:text-white line-clamp-2 leading-tight">
-                        {product.brandName || product.name}
+                        {product?.brandName || product?.name || 'Bidhaa'}
                       </div>
 
                       {/* Generic / Active ingredient */}
@@ -814,7 +814,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
                             }`}
                           >
                             <div>
-                              <div className="font-bold">{cust.name}</div>
+                              <div className="font-bold">{cust?.name || 'Mteja'}</div>
                               <div className="text-[10px] text-slate-500 font-mono">{cust.phone}</div>
                             </div>
                             {cust.currentDebt > 0 && (
@@ -842,7 +842,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
                     <option value="">-- Hakuna Meza --</option>
                     {tables.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.name} ({t.status})
+                        {t?.name || 'Meza'} ({t?.status || ''})
                       </option>
                     ))}
                   </select>
@@ -858,7 +858,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
                     <option value="">-- Hakuna Mhudumu --</option>
                     {users.filter((u) => u.active).map((u) => (
                       <option key={u.id} value={u.id}>
-                        {u.name} ({u.role})
+                        {u?.name || u?.username || 'Mtumiaji'} ({u?.role || ''})
                       </option>
                     ))}
                   </select>
@@ -1135,7 +1135,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
               <div className="flex items-center space-x-2">
                 <Beer className="w-5 h-5 text-amber-500" />
                 <h3 className="font-black text-sm text-slate-900 dark:text-white truncate">
-                  {shotModalProduct.name}
+                  {shotModalProduct?.name || 'Bidhaa'}
                 </h3>
               </div>
               <button onClick={() => setShotModalProduct(null)} className="text-slate-400 hover:text-white">
@@ -1365,7 +1365,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
                         type="text"
                         value={dispensingPharmacist}
                         onChange={(e) => setDispensingPharmacist(e.target.value)}
-                        placeholder={profile.supervisingPharmacist || currentUser?.name || 'Mfamasia'}
+                        placeholder={profile?.supervisingPharmacist || currentUser?.name || 'Mfamasia'}
                         className="w-full p-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-semibold focus:outline-none focus:border-teal-500"
                       />
                     </div>
@@ -1493,7 +1493,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
 
             <div className="p-3.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-2xl space-y-2 text-xs text-red-900 dark:text-red-200">
               <div>
-                <span className="font-bold">Dawa:</span> {expiredMedicineBlocked.brandName || expiredMedicineBlocked.name}
+                <span className="font-bold">Dawa:</span> {expiredMedicineBlocked?.brandName || expiredMedicineBlocked?.name || 'Dawa'}
               </div>
               {expiredMedicineBlocked.genericName && (
                 <div>
@@ -1627,7 +1627,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
                     Chagua Ngazi ya Kuuza
                   </h3>
                   <div className="text-xs text-slate-500">
-                    {packagingModalProduct.name}
+                    {packagingModalProduct?.name || 'Bidhaa'}
                   </div>
                 </div>
               </div>
@@ -1682,7 +1682,7 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
                   >
                     <div>
                       <div className="font-black text-xs text-slate-900 dark:text-white group-hover:text-emerald-500 flex items-center gap-1.5">
-                        <span>📦 {pkg.name}</span>
+                        <span>📦 {pkg?.name || ''}</span>
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
                           {pkg.unitsPerPackage} {packagingModalProduct.unit || 'units'}
                         </span>

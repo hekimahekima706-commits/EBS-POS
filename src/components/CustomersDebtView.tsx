@@ -73,7 +73,7 @@ export const CustomersDebtView: React.FC = () => {
 
   const filteredCustomers = customers.filter((c) => {
     const matchesSearch =
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (c?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.phone.includes(searchQuery) ||
       (c.address && c.address.toLowerCase().includes(searchQuery.toLowerCase()));
     const matchesCat = categoryFilter === 'all' || c.category === categoryFilter || c.customerType === categoryFilter;
@@ -317,7 +317,7 @@ export const CustomersDebtView: React.FC = () => {
                     return (
                       <tr key={cust.id} className="hover:bg-slate-800/40 transition">
                         <td className="p-3.5">
-                          <div className="font-bold text-white text-sm">{cust.name}</div>
+                          <div className="font-bold text-white text-sm">{cust?.name || 'Mteja'}</div>
                           {cust.notes && <div className="text-[10px] text-slate-500 mt-0.5 line-clamp-1">{cust.notes}</div>}
                         </td>
                         <td className="p-3.5">
@@ -329,7 +329,7 @@ export const CustomersDebtView: React.FC = () => {
                         </td>
                         <td className="p-3.5">
                           <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase ${catInfo.color}`}>
-                            {catInfo.name}
+                            {catInfo?.name || ''}
                           </span>
                         </td>
                         <td className="p-3.5 font-mono font-bold text-slate-400">
@@ -475,7 +475,7 @@ export const CustomersDebtView: React.FC = () => {
               <div className="p-3 rounded-xl bg-amber-950/80 border border-amber-800 text-amber-200 text-xs font-semibold flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Mteja mwenye simu hii tayari yupo: <strong>{duplicateWarning.name}</strong></span>
+                  <span>Mteja mwenye simu hii tayari yupo: <strong>{duplicateWarning?.name || ''}</strong></span>
                 </div>
               </div>
             )}
@@ -697,7 +697,7 @@ export const CustomersDebtView: React.FC = () => {
           <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-black text-white">{statementCustomer.name}</h3>
+                <h3 className="text-lg font-black text-white">{statementCustomer?.name || 'Mteja'}</h3>
                 <div className="text-xs text-slate-400 font-mono">{statementCustomer.phone} • {statementCustomer.address || 'Dar es Salaam'}</div>
               </div>
               <button onClick={() => setStatementCustomer(null)} className="text-slate-400 hover:text-white">

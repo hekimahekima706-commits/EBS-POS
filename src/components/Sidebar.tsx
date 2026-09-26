@@ -180,7 +180,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isOpe
               alt="EBS"
               className="w-8 h-8 rounded-xl object-cover shrink-0 border border-emerald-500/30"
             />
-            <div className="font-bold text-white text-sm truncate">{profile.name}</div>
+            <div className="font-bold text-white text-sm truncate">{profile?.name || 'EBS SMART BIZ'}</div>
           </div>
           <button
             onClick={onClose}

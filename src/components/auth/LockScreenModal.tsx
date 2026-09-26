@@ -59,7 +59,7 @@ export const LockScreenModal: React.FC = () => {
         </div>
 
         <h2 className="text-xl font-black text-slate-100 uppercase tracking-wide">
-          {profile.name || 'EBS SMART BIZ'}
+          {profile?.name || 'EBS SMART BIZ'}
         </h2>
         <div className="mt-1 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-300">
           <UserCheck className="w-3.5 h-3.5 text-emerald-400" />

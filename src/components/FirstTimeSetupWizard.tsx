@@ -302,7 +302,7 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
                     <button
                       key={item?.id || item?.name || Math.random()}
                       type="button"
-                      onClick={() => item?.name && toggleSecondaryType(item.name)}
+                      onClick={() => item?.name && toggleSecondaryType(item?.name)}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border ${
                         isChecked
                           ? 'bg-teal-950 border-teal-500 text-teal-300'
