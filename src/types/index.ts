@@ -657,6 +657,8 @@ export interface BusinessProfile {
   currency: string; // "TZS"
   timezone: string; // "Africa/Dar_es_Salaam"
   mode: BusinessMode;
+  business_type?: string;
+  businessType?: string;
   primaryBusinessType: string;
   secondaryBusinessTypes: string[];
   logoUrl?: string;

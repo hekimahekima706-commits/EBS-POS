@@ -171,6 +171,8 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
           tagline,
           logoUrl: logoPreview,
           mode: primaryType,
+          business_type: primaryType || 'general',
+          businessType: primaryType || 'general',
           primaryBusinessType: selectedCatalog?.name || 'General Business',
           secondaryBusinessTypes: secondaryTypes,
           currency: 'TZS',

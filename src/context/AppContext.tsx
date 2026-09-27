@@ -816,7 +816,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     profileUpdates: Partial<BusinessProfile>,
     ownerData: { name: string; username: string; phone: string; password: string; email?: string }
   ) => {
-    // 1. Register business in businesses table & owner in app_users table (with signUp if enabled)
+    // 1. Register business in businesses table & owner in profiles table (with signUp if enabled)
+    const cleanBizType = (profileUpdates as any).business_type || (profileUpdates as any).businessType || profileUpdates.mode || 'general';
     const regResult = await registerBusinessOwner({
       business: {
         ...profileUpdates,
@@ -824,6 +825,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ownerName: ownerData.name,
         phone: profileUpdates.phone || ownerData.phone,
         email: profileUpdates.email || ownerData.email,
+        business_type: cleanBizType,
+        businessType: cleanBizType,
       },
       owner: {
         name: ownerData.name,

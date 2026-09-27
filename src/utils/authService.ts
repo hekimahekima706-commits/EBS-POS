@@ -238,7 +238,7 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
     });
 
     try {
-      let bizRes = await supabaseClient.from('businesses').insert(businessRecord).select('id, name').single();
+      let bizRes = await supabaseClient.from('businesses').insert(businessRecord).select('id').single();
 
       if (bizRes.error) {
         console.error('[Registration Pipeline - Step 2: Supabase businesses table INSERT ERROR]', {
@@ -251,19 +251,23 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
           fullError: bizRes.error,
         });
 
-        // If specific extra column is rejected (42703), retry with minimal core fields
+        // If specific extra column is rejected (42703), retry with adjusted core fields
         if (bizRes.error.code === '42703' || bizRes.error.message?.includes('column')) {
+          const errMsg = (bizRes.error.message || '').toLowerCase();
+          const omitStoreName = errMsg.includes('store_name');
+          const omitName = errMsg.includes('"name"');
+
           const coreBusinessRecord = cleanRecord({
             id: generatedBizId,
-            name: cleanStoreName,
-            store_name: cleanStoreName,
+            ...(omitName ? {} : { name: cleanStoreName }),
+            ...(omitStoreName ? {} : { store_name: cleanStoreName }),
             owner_name: cleanOwnerName,
             business_type: cleanBusinessType,
             phone: cleanPhone,
             email: business.email || owner.email || null,
             created_at: new Date().toISOString(),
           });
-          console.warn('[Registration Pipeline] Retrying businesses insert with minimal core schema fields:', coreBusinessRecord);
+          console.warn('[Registration Pipeline] Retrying businesses insert with adjusted schema fields (including business_type):', coreBusinessRecord);
           bizRes = await supabaseClient.from('businesses').insert(coreBusinessRecord).select('id').single();
         }
       }
@@ -379,26 +383,33 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
           fullError: userRes.error,
         });
 
-        // If extra columns do not exist in profiles table (code 42703), retry with core fields
+        // If extra columns do not exist in profiles table (code 42703), retry with adjusted core fields
         if (userRes.error.code === '42703' || userRes.error.message?.includes('column')) {
+          const errMsg = (userRes.error.message || '').toLowerCase();
+          const omitFullName = errMsg.includes('full_name');
+          const omitName = errMsg.includes('"name"');
+          const omitBranch = errMsg.includes('branch_id');
+          const omitPasswordHash = errMsg.includes('password_hash');
+          const omitPin = errMsg.includes('pin');
+
           const coreProfileRecord = cleanRecord({
             id: ownerUserId,
             business_id: finalBusinessId,
-            branch_id: safeBranchId,
-            name: safeName,
-            full_name: safeName,
+            ...(omitBranch ? {} : { branch_id: safeBranchId }),
+            ...(omitName ? {} : { name: safeName }),
+            ...(omitFullName ? {} : { full_name: safeName }),
             username: cleanUsername,
             role: safeRole,
             phone: cleanPhone,
             email: owner.email || null,
-            password_hash: passwordHash,
-            pin: owner.pin || '1234',
+            ...(omitPasswordHash ? {} : { password_hash: passwordHash }),
+            ...(omitPin ? {} : { pin: owner.pin || '1234' }),
             active: safeActive,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           });
           console.warn('[Registration Pipeline] Retrying profiles insert with standard core columns:', coreProfileRecord);
-          userRes = await supabaseClient.from('profiles').insert(coreProfileRecord).select().single();
+          userRes = await supabaseClient.from('profiles').insert(coreProfileRecord).select('id').single();
         }
       }
 
