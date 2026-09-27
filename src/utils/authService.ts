@@ -86,6 +86,30 @@ export function ensureValidUserName(rawUser: any): string {
 }
 
 /**
+ * Validates whether a string is a standard UUID v4 format
+ */
+export function isValidUUID(str?: string | null): boolean {
+  if (!str || typeof str !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str.trim());
+}
+
+/**
+ * Generates a valid RFC4122 v4 UUID using crypto.randomUUID with fallback
+ */
+export function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    try {
+      return crypto.randomUUID();
+    } catch {}
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/**
  * Sanitizes and normalizes user object from database or storage to guarantee all required fields
  */
 export function sanitizeUser(rawUser: any): User {
@@ -98,7 +122,7 @@ export function sanitizeUser(rawUser: any): User {
 
   return {
     ...rawUser,
-    id: rawUser.id || `usr-${Date.now()}`,
+    id: rawUser.id || generateUUID(),
     name: safeName,
     username: safeUsername,
     role: rawUser.role || 'cashier',
@@ -139,8 +163,13 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
 
   const cleanUsername = owner.username.toLowerCase().trim().replace(/\s+/g, '');
   const cleanPhone = (owner.phone || business.phone || '').trim();
-  const generatedBizId = business.id || `biz-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-  let finalBusinessId: string = generatedBizId;
+
+  // If a valid UUID was already supplied on business.id, use it.
+  // Otherwise, leave providedBizId as null so the `id` field is completely OMITTED when inserting into Supabase,
+  // allowing the database to automatically generate a standard UUID v4 via DEFAULT gen_random_uuid().
+  const providedBizId = isValidUUID(business.id) ? business.id! : null;
+  // Fallback UUID v4 for local tracking (never use string formats like "biz-...")
+  let finalBusinessId: string = providedBizId || generateUUID();
   let authUserId: string | null = null;
 
   // If Supabase client is configured, execute real cloud synchronization
@@ -175,11 +204,19 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
             status: authError.status,
           });
           const msg = authError.message || 'Hitilafu ya Supabase Auth';
+          const isNetworkError = msg.toLowerCase().includes('fetch') ||
+                                 msg.toLowerCase().includes('network') ||
+                                 msg.toLowerCase().includes('load failed') ||
+                                 authError.status === 0 ||
+                                 authError.status === 504;
+
           // If error is NOT "already registered", return actionable error to display in UI
           if (!msg.toLowerCase().includes('already registered')) {
             return {
               success: false,
-              error: `Supabase Auth (signUp) Imefeli: ${msg}`,
+              error: isNetworkError
+                ? `Hitilafu ya Mtandao (Supabase Auth): Imeshindikana kuunganisha kwenye seva ya Supabase. Hakikisha kifaa kimeunganishwa na intaneti na seva ya Supabase inapatikana.`
+                : `Supabase Auth (signUp) Imefeli: ${msg}`,
               errorStep: 'signUp',
               details: authError.status ? `Kodi ya Hadhi: ${authError.status}` : undefined,
             };
@@ -191,10 +228,18 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
         }
       } catch (err: any) {
         console.error('[Registration Pipeline - Step 1: Supabase signUp EXCEPTION]', err);
+        const errMsg = err?.message || String(err);
+        const isNetwork = errMsg.toLowerCase().includes('fetch') ||
+                          errMsg.toLowerCase().includes('network') ||
+                          errMsg.toLowerCase().includes('load failed') ||
+                          (typeof navigator !== 'undefined' && !navigator.onLine);
         return {
           success: false,
-          error: `Hitilafu ya mtandao wakati wa signUp Supabase: ${err?.message || err}`,
+          error: isNetwork
+            ? `Hitilafu ya Mtandao: Imeshindikana kuwasiliana na Supabase Auth (${errMsg}). Hakikisha mtandao unafanya kazi na ujaribu tena.`
+            : `Hitilafu ya mtandao wakati wa signUp Supabase: ${errMsg}`,
           errorStep: 'signUp',
+          details: errMsg,
         };
       }
     }
@@ -202,13 +247,16 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
     // -------------------------------------------------------------
     // STEP 2: Create record in `businesses` table & retrieve business_id
     // Required fields: store_name, owner_name, business_type, phone
+    // NOTE: OMIT `id` field completely so Supabase automatically generates a valid UUID via gen_random_uuid(),
+    // OR pass providedBizId only if it is already a valid UUID v4.
     // -------------------------------------------------------------
     const cleanStoreName = (business.name || (business as any).store_name || (business as any).storeName || 'EBS Business').trim();
     const cleanOwnerName = (owner.name || (business as any).ownerName || (business as any).owner_name || 'Mmiliki').trim();
-    const cleanBusinessType = (business as any).business_type || (business as any).businessType || business.mode || 'general';
+    const rawBusinessType = (business as any).business_type || (business as any).businessType || business.mode || (business as any).primaryBusinessType || 'general';
+    const cleanBusinessType = String(rawBusinessType).trim().toLowerCase();
 
     const businessRecord: any = cleanRecord({
-      id: generatedBizId,
+      ...(providedBizId ? { id: providedBizId } : {}), // Omit completely on new insert so Supabase auto-generates UUID!
       name: cleanStoreName,             // Standard name column
       store_name: cleanStoreName,       // Required schema field
       owner_name: cleanOwnerName,       // Required schema field
@@ -258,7 +306,7 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
           const omitName = errMsg.includes('"name"');
 
           const coreBusinessRecord = cleanRecord({
-            id: generatedBizId,
+            ...(providedBizId ? { id: providedBizId } : {}),
             ...(omitName ? {} : { name: cleanStoreName }),
             ...(omitStoreName ? {} : { store_name: cleanStoreName }),
             owner_name: cleanOwnerName,
@@ -295,7 +343,7 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
         };
       }
 
-      // Retrieve the generated business_id from Supabase
+      // Retrieve the generated UUID business_id from Supabase
       if (bizRes.data?.id) {
         finalBusinessId = bizRes.data.id;
       }
@@ -313,7 +361,7 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
     // Fallback handling for: branch_id, active, role, name (never undefined)
     // -------------------------------------------------------------
     const passwordHash = owner.password ? await hashPassword(owner.password) : '';
-    const ownerUserId = authUserId || owner.id || `usr-owner-${Date.now()}`;
+    const ownerUserId = authUserId || (isValidUUID(owner.id) ? owner.id! : generateUUID());
 
     // Explicit fallback handling to guarantee no undefined values
     const safeName = (owner.name || (owner as any).fullName || owner.username || 'Mmiliki').trim();
@@ -448,7 +496,7 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
   // Construct normalized User object
   const passwordHash = owner.password ? await hashPassword(owner.password) : '';
   const sanitizedUser = sanitizeUser({
-    id: authUserId || owner.id || `usr-owner-${Date.now()}`,
+    id: authUserId || (isValidUUID(owner.id) ? owner.id! : generateUUID()),
     businessId: finalBusinessId,
     name: owner.name.trim(),
     username: cleanUsername,

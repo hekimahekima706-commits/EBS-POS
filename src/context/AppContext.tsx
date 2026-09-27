@@ -60,7 +60,7 @@ import {
   pullDeltaFromServer,
   isSimulatedOffline
 } from '../utils/syncEngine';
-import { registerBusinessOwner } from '../utils/authService';
+import { registerBusinessOwner, generateUUID } from '../utils/authService';
 
 export interface AuthResponse {
   success: boolean;
@@ -846,7 +846,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const ownerPassHash = await hashPassword(ownerData.password);
     const ownerUser: User = regResult.user || {
-      id: `usr-owner-${Date.now()}`,
+      id: generateUUID(),
       businessId: regResult.businessId,
       name: ownerData?.name || 'Mmiliki',
       username: ownerData.username.toLowerCase().trim(),

@@ -1,7 +1,34 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
+// Standard Supabase client initialization from environment variables
+const getEnvVar = (key: string): string => {
+  try {
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+      if ((import.meta as any).env[key]) return String((import.meta as any).env[key]).trim();
+      if ((import.meta as any).env[`VITE_${key}`]) return String((import.meta as any).env[`VITE_${key}`]).trim();
+    }
+  } catch {}
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      if (process.env[key]) return String(process.env[key]).trim();
+      if (process.env[`VITE_${key}`]) return String(process.env[`VITE_${key}`]).trim();
+    }
+  } catch {}
+  return '';
+};
+
+const supabaseUrl = getEnvVar('VITE_SUPABASE_URL') || getEnvVar('SUPABASE_URL');
+const supabaseAnonKey = getEnvVar('VITE_SUPABASE_ANON_KEY') || getEnvVar('SUPABASE_ANON_KEY');
+
+const isValidUrl = (url: string): boolean => {
+  try {
+    return Boolean(url && url.startsWith('http') && new URL(url));
+  } catch {
+    return false;
+  }
+};
+
+export const isSupabaseConfigured = Boolean(isValidUrl(supabaseUrl) && supabaseAnonKey && supabaseAnonKey.length > 10);
 
 /**
  * Strictly targeted Supabase tables and default schema for EBS system
@@ -12,11 +39,12 @@ export const BUSINESSES_TABLE = 'businesses' as const;
 export const PRODUCTS_TABLE = 'products' as const;
 export const SALES_TABLE = 'sales' as const;
 
-export const supabaseClient: SupabaseClient<any, 'public', any> | null = (supabaseUrl && supabaseAnonKey)
+export const supabaseClient: SupabaseClient<any, 'public', any> | null = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
+        detectSessionInUrl: true,
       },
       db: {
         schema: 'public',

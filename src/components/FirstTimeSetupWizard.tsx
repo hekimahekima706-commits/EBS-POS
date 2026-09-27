@@ -198,7 +198,14 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
       setErrorMsg(msg);
       if (err?.step) setErrorStep(err.step);
       if (err?.details) setErrorDetails(err.details);
-      if (msg.includes('RLS') || msg.includes('policy') || msg.includes('42501') || err?.step === 'businesses' || err?.step === 'app_users') {
+      if (
+        msg.includes('RLS') ||
+        msg.includes('policy') ||
+        msg.includes('42501') ||
+        err?.step === 'businesses' ||
+        err?.step === 'profiles' ||
+        err?.step === 'app_users'
+      ) {
         setShowRlsSnippet(true);
       }
     } finally {
