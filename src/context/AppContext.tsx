@@ -1366,7 +1366,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Queue in Offline-First Sync Engine
     const device = getLocalDeviceIdentity();
-    const bizId = (profile as any)?.id || 'EBS-BIZ-000001';
+    const bizId = (profile as any)?.id || '00000000-0000-4000-8000-000000000001';
     const deviceId = device?.id || 'DEV-LOCAL-001';
     const deviceName = device?.name || 'Local POS Terminal';
     enqueueOfflineTransaction(bizId, {
@@ -1576,7 +1576,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Queue in Offline-First Sync Engine & push if connected
     const device = getLocalDeviceIdentity();
-    const bizId = (profile as any)?.id || 'EBS-BIZ-000001';
+    const bizId = (profile as any)?.id || '00000000-0000-4000-8000-000000000001';
     const deviceId = device?.id || 'DEV-LOCAL-001';
     const deviceName = device?.name || 'Local POS Terminal';
     enqueueOfflineTransaction(bizId, {

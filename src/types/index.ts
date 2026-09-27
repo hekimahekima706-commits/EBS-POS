@@ -218,7 +218,7 @@ export interface Branch {
 }
 
 export interface BusinessEntity {
-  id: string; // e.g. "EBS-BIZ-000001"
+  id: string; // Standard UUID v4 e.g. "00000000-0000-4000-8000-000000000001"
   name: string;
   ownerName: string;
   ownerId?: string;

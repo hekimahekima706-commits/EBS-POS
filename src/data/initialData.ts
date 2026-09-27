@@ -71,7 +71,7 @@ export const INITIAL_BUSINESS_PROFILE: BusinessProfile = {
 };
 
 export const INITIAL_BUSINESS_ENTITY: BusinessEntity = {
-  id: 'EBS-BIZ-000001',
+  id: '00000000-0000-4000-8000-000000000001',
   name: 'ELLY SMART BAR',
   ownerName: 'Selemani Rashid',
   ownerId: 'usr-1',
@@ -88,7 +88,7 @@ export const INITIAL_BUSINESS_ENTITY: BusinessEntity = {
   branches: [
     {
       id: 'br-main',
-      businessId: 'EBS-BIZ-000001',
+      businessId: '00000000-0000-4000-8000-000000000001',
       name: 'Tawi Kuu - Mlimani City',
       code: 'HQ-MLIMANI',
       phone: '0676674705',
@@ -103,7 +103,7 @@ export const INITIAL_BUSINESS_ENTITY: BusinessEntity = {
 export const INITIAL_DEVICES: BusinessDevice[] = [
   {
     id: 'DEV-OWNER-01',
-    businessId: 'EBS-BIZ-000001',
+    businessId: '00000000-0000-4000-8000-000000000001',
     name: 'Owner Phone (Samsung S24 Ultra)',
     platform: 'android',
     appVersion: 'v1.3.0',
@@ -121,7 +121,7 @@ export const INITIAL_DEVICES: BusinessDevice[] = [
   },
   {
     id: 'DEV-MGR-02',
-    businessId: 'EBS-BIZ-000001',
+    businessId: '00000000-0000-4000-8000-000000000001',
     name: 'Manager Tablet (Samsung Tab S9)',
     platform: 'android',
     appVersion: 'v1.3.0',
@@ -139,7 +139,7 @@ export const INITIAL_DEVICES: BusinessDevice[] = [
   },
   {
     id: 'DEV-POS-03',
-    businessId: 'EBS-BIZ-000001',
+    businessId: '00000000-0000-4000-8000-000000000001',
     name: 'Cashier Kaunta POS (Windows 11)',
     platform: 'windows',
     appVersion: 'v1.3.0',
@@ -157,7 +157,7 @@ export const INITIAL_DEVICES: BusinessDevice[] = [
   },
   {
     id: 'DEV-STORE-04',
-    businessId: 'EBS-BIZ-000001',
+    businessId: '00000000-0000-4000-8000-000000000001',
     name: 'Storekeeper Phone (Xiaomi Redmi)',
     platform: 'android',
     appVersion: 'v1.3.0',
@@ -175,7 +175,7 @@ export const INITIAL_DEVICES: BusinessDevice[] = [
   },
   {
     id: 'DEV-WAITER-05',
-    businessId: 'EBS-BIZ-000001',
+    businessId: '00000000-0000-4000-8000-000000000001',
     name: 'Waiter Phone (Infinix Hot 40)',
     platform: 'android',
     appVersion: 'v1.3.0',

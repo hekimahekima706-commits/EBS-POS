@@ -72,7 +72,7 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
   const [editDeviceName, setEditDeviceName] = useState('');
   const [editDevicePlatform, setEditDevicePlatform] = useState<DevicePlatform>('android');
 
-  const businessId = (profile as any).id || 'EBS-BIZ-000001';
+  const businessId = (profile as any).id || '00000000-0000-4000-8000-000000000001';
 
   // Load devices from server
   const fetchDevices = async () => {

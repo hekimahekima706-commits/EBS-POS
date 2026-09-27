@@ -157,8 +157,14 @@ export const FirstTimeSetupWizard: React.FC<FirstTimeSetupWizardProps> = ({ onCo
 
       const selectedCatalog = (BUSINESS_TYPES_CATALOG || []).find((b) => b?.id === primaryType);
 
+      // Generate standard UUID v4 via crypto.randomUUID() or omit id so Supabase DB auto-generates gen_random_uuid()
+      const standardBusinessUuid = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : undefined;
+
       await completeSetupWizard(
         {
+          ...(standardBusinessUuid ? { id: standardBusinessUuid } : {}),
           name: businessName,
           ownerName,
           phone,

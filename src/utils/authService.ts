@@ -164,12 +164,17 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
   const cleanUsername = owner.username.toLowerCase().trim().replace(/\s+/g, '');
   const cleanPhone = (owner.phone || business.phone || '').trim();
 
-  // If a valid UUID was already supplied on business.id, use it.
-  // Otherwise, leave providedBizId as null so the `id` field is completely OMITTED when inserting into Supabase,
-  // allowing the database to automatically generate a standard UUID v4 via DEFAULT gen_random_uuid().
+  // 1. NEVER generate custom string IDs like 'biz-1790509941992-1kxe'
+  // Use crypto.randomUUID() for a standard RFC4122 UUID v4
+  const generatedBusinessUuid = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    ? crypto.randomUUID()
+    : generateUUID();
+
+  // If a valid UUID v4 was explicitly provided, use it.
+  // Otherwise, leave providedBizId as null so `id` is completely OMITTED when inserting into Supabase,
+  // allowing the database to auto-generate a valid UUID via `DEFAULT gen_random_uuid()`.
   const providedBizId = isValidUUID(business.id) ? business.id! : null;
-  // Fallback UUID v4 for local tracking (never use string formats like "biz-...")
-  let finalBusinessId: string = providedBizId || generateUUID();
+  let finalBusinessId: string = providedBizId || generatedBusinessUuid;
   let authUserId: string | null = null;
 
   // If Supabase client is configured, execute real cloud synchronization
@@ -247,8 +252,8 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
     // -------------------------------------------------------------
     // STEP 2: Create record in `businesses` table & retrieve business_id
     // Required fields: store_name, owner_name, business_type, phone
-    // NOTE: OMIT `id` field completely so Supabase automatically generates a valid UUID via gen_random_uuid(),
-    // OR pass providedBizId only if it is already a valid UUID v4.
+    // NOTE: Completely OMIT `id` property so Supabase automatically generates
+    // a valid UUID via gen_random_uuid(), OR pass providedBizId only if valid UUID v4.
     // -------------------------------------------------------------
     const cleanStoreName = (business.name || (business as any).store_name || (business as any).storeName || 'EBS Business').trim();
     const cleanOwnerName = (owner.name || (business as any).ownerName || (business as any).owner_name || 'Mmiliki').trim();
@@ -256,7 +261,7 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
     const cleanBusinessType = String(rawBusinessType).trim().toLowerCase();
 
     const businessRecord: any = cleanRecord({
-      ...(providedBizId ? { id: providedBizId } : {}), // Omit completely on new insert so Supabase auto-generates UUID!
+      ...(providedBizId ? { id: providedBizId } : {}), // Omit completely on new setup so Supabase auto-generates UUID via gen_random_uuid()!
       name: cleanStoreName,             // Standard name column
       store_name: cleanStoreName,       // Required schema field
       owner_name: cleanOwnerName,       // Required schema field
@@ -273,6 +278,7 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
       branches: business.branches || [],
       profile: {
         ...business,
+        id: finalBusinessId,
         name: cleanStoreName,
         store_name: cleanStoreName,
         ownerName: cleanOwnerName,
@@ -287,6 +293,15 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
 
     try {
       let bizRes = await supabaseClient.from('businesses').insert(businessRecord).select('id').single();
+
+      // If id is not null and lacks default generator, retry with generated standard UUID v4
+      if (bizRes.error && (bizRes.error.code === '23502' || bizRes.error.message?.includes('null value in column "id"'))) {
+        console.warn('[Registration Pipeline] Database table requires explicit id column. Supplying standard UUID v4:', generatedBusinessUuid);
+        bizRes = await supabaseClient.from('businesses').insert({
+          ...businessRecord,
+          id: generatedBusinessUuid,
+        }).select('id').single();
+      }
 
       if (bizRes.error) {
         console.error('[Registration Pipeline - Step 2: Supabase businesses table INSERT ERROR]', {
@@ -317,6 +332,13 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
           });
           console.warn('[Registration Pipeline] Retrying businesses insert with adjusted schema fields (including business_type):', coreBusinessRecord);
           bizRes = await supabaseClient.from('businesses').insert(coreBusinessRecord).select('id').single();
+
+          if (bizRes.error && (bizRes.error.code === '23502' || bizRes.error.message?.includes('null value in column "id"'))) {
+            bizRes = await supabaseClient.from('businesses').insert({
+              ...coreBusinessRecord,
+              id: generatedBusinessUuid,
+            }).select('id').single();
+          }
         }
       }
 
@@ -344,7 +366,7 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
       }
 
       // Retrieve the generated UUID business_id from Supabase
-      if (bizRes.data?.id) {
+      if (bizRes.data?.id && isValidUUID(bizRes.data.id)) {
         finalBusinessId = bizRes.data.id;
       }
     } catch (err: any) {
@@ -482,6 +504,59 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
           errorStep: 'profiles',
           details: userRes.error.details || userRes.error.hint,
         };
+      }
+
+      // -------------------------------------------------------------
+      // Also sync to `stores` table if present in the database schema
+      // All using standard UUID for business_id foreign key
+      // -------------------------------------------------------------
+      try {
+        const storeRecord = cleanRecord({
+          id: (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : generateUUID()),
+          business_id: finalBusinessId, // Standard UUID v4 foreign key
+          name: cleanStoreName,
+          store_name: cleanStoreName,
+          owner_name: cleanOwnerName,
+          phone: cleanPhone,
+          business_type: cleanBusinessType,
+          status: 'active',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        const storeRes = await supabaseClient.from('stores').insert(storeRecord);
+        if (storeRes.error && storeRes.error.code !== '42P01') {
+          console.warn('[Registration Pipeline] Sync to stores table notice:', storeRes.error.message);
+        }
+      } catch {
+        // stores table may not exist in some projects; non-blocking
+      }
+
+      // -------------------------------------------------------------
+      // Also sync to `users` table if present in the database schema
+      // All using standard UUID for business_id foreign key
+      // -------------------------------------------------------------
+      try {
+        const usersRecord = cleanRecord({
+          id: ownerUserId, // Standard UUID v4
+          business_id: finalBusinessId, // Standard UUID v4 foreign key
+          username: cleanUsername,
+          name: safeName,
+          full_name: safeName,
+          role: safeRole,
+          phone: cleanPhone,
+          email: owner.email || null,
+          password_hash: passwordHash,
+          pin: owner.pin || '1234',
+          active: safeActive,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        const usersRes = await supabaseClient.from('users').insert(usersRecord);
+        if (usersRes.error && usersRes.error.code !== '42P01') {
+          console.warn('[Registration Pipeline] Sync to users table notice:', usersRes.error.message);
+        }
+      } catch {
+        // users table may not exist; non-blocking
       }
     } catch (err: any) {
       console.error('[Registration Pipeline - Step 3: profiles table EXCEPTION]', err);
