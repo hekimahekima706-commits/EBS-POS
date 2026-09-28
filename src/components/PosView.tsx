@@ -7,6 +7,8 @@ import { validateTanzanianPhone } from '../utils/security';
 import { subscribeToPosRealtime } from '../utils/supabaseClient';
 import { ReceiptModal } from './ReceiptModal';
 import { TransactionDetailsModal } from './TransactionDetailsModal';
+import { VoiceSalesAssistantModal } from './VoiceSalesAssistantModal';
+import { QuickSaleModal } from './QuickSaleModal';
 import {
   Package,
   Search,
@@ -38,7 +40,9 @@ import {
   FileText,
   Stethoscope,
   AlertCircle,
-  Edit3
+  Edit3,
+  Mic,
+  Zap,
 } from 'lucide-react';
 
 interface PosViewProps {
@@ -117,6 +121,8 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
   // Internal Modals
   const [modalReceiptSale, setModalReceiptSale] = useState<Sale | null>(null);
   const [modalDetailsSale, setModalDetailsSale] = useState<Sale | null>(null);
+  const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const [showQuickSaleModal, setShowQuickSaleModal] = useState(false);
 
   // Category list
   const categories = useMemo(() => {
@@ -505,6 +511,28 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
           >
             <Clock className="w-4 h-4" />
             <span>Historia ya Mauzo ({sales.length})</span>
+          </button>
+
+          {/* Voice POS Assistant Button (Section A) */}
+          <button
+            id="btn-pos-voice-sale"
+            onClick={() => setShowVoiceModal(true)}
+            className="px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-600/30 active:scale-95 shrink-0"
+            title="Uza kwa Sauti (Gemini Live API)"
+          >
+            <Mic className="w-4 h-4 animate-pulse" />
+            <span>Sauti (Voice)</span>
+          </button>
+
+          {/* Quick Sale Button (Section D) */}
+          <button
+            id="btn-pos-quick-sale"
+            onClick={() => setShowQuickSaleModal(true)}
+            className="px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 bg-amber-600 hover:bg-amber-500 text-white shadow-md shadow-amber-600/30 active:scale-95 shrink-0"
+            title="Mauzo ya Haraka (Vitu visivyo kwenye stoo)"
+          >
+            <Zap className="w-4 h-4" />
+            <span>Quick Sale</span>
           </button>
         </div>
 
@@ -1734,6 +1762,28 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
           }}
         />
       )}
+
+      {/* VOICE SALES ASSISTANT MODAL (Section A) */}
+      <VoiceSalesAssistantModal
+        isOpen={showVoiceModal}
+        onClose={() => setShowVoiceModal(false)}
+        onCompleteSaleSuccess={(completedSale) => {
+          if (onSelectSale) onSelectSale(completedSale);
+        }}
+        onOpenReceipt={(sale) => {
+          if (onPrintReceipt) onPrintReceipt(sale);
+          else setModalReceiptSale(sale);
+        }}
+      />
+
+      {/* QUICK SALE MODAL (Section D) */}
+      <QuickSaleModal
+        isOpen={showQuickSaleModal}
+        onClose={() => setShowQuickSaleModal(false)}
+        onAddToCart={(item) => {
+          setCartItems((prev) => [...prev, item]);
+        }}
+      />
     </div>
   );
 };

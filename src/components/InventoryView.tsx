@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { Product, ProductType, StockMovementType, MedicineClassification, PackagingUnit } from '../types';
 import { formatTZS, formatDateTime } from '../utils/formatters';
 import { isProductActive, isDemoProduct, getMedicineExpiryStatus, PHARMACY_DOSAGE_FORMS } from '../utils/productUtils';
+import { BulkImportModal } from './BulkImportModal';
 import {
   Package,
   Plus,
@@ -60,6 +61,9 @@ export const InventoryView: React.FC = () => {
 
   // Demo clear confirmation modal
   const [showClearDemoModal, setShowClearDemoModal] = useState(false);
+
+  // Bulk Import modal state (Section C)
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -513,6 +517,16 @@ export const InventoryView: React.FC = () => {
               <span>Kumbukumbu za Stoo</span>
             </button>
           </div>
+
+          <button
+            id="btn-bulk-import-products"
+            onClick={() => setShowBulkImportModal(true)}
+            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-600/30 transition active:scale-95 shrink-0"
+            title="Pakia Bidhaa kwa Wingi (CSV au Changanua Ankara ya Msambazaji)"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Pakia kwa Wingi (Bulk)</span>
+          </button>
 
           <button
             id="btn-add-new-product"
@@ -1815,6 +1829,16 @@ export const InventoryView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* BULK IMPORT MODAL (Section C) */}
+      <BulkImportModal
+        isOpen={showBulkImportModal}
+        onClose={() => setShowBulkImportModal(false)}
+        onSuccess={(count) => {
+          setToastMessage(`Hongera! Bidhaa ${count} zimeongezwa stoo kwa mafanikio.`);
+          setTimeout(() => setToastMessage(null), 5000);
+        }}
+      />
     </div>
   );
 };

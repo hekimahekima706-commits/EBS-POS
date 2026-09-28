@@ -36,7 +36,26 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
   const [showModeDropdown, setShowModeDropdown] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [showNotificationMenu, setShowNotificationMenu] = useState(false);
+  const [showNetworkInfo, setShowNetworkInfo] = useState(false);
+  const [isOnline, setIsOnline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
 
+  React.useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const isActuallyOnline = isOnline && !isSimulatedOffline();
+  const offlineQueueCount = getOfflineQueue(profile?.id || currentUser?.businessId || 'default').length;
   const lowStockCount = products.filter(p => isProductActive(p) && p.stockQty <= p.minStock).length;
   const recentAlertsCount = cameraEvents.slice(0, 5).length + (lowStockCount > 0 ? 1 : 0);
 
@@ -152,31 +171,117 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
           <span className="hidden lg:inline">AI Msaidizi</span>
         </button>
 
-        {/* Online / Offline & Multi-Device Status Pill */}
-        <button
-          onClick={() => onNavigate('devices')}
-          title="Usimamizi wa Vifaa & Sync (Bofya kuona)"
-          className={`hidden sm:flex items-center space-x-1.5 text-xs px-2.5 py-1 rounded-xl border transition ${
-            isSimulatedOffline()
-              ? 'bg-amber-950/50 text-amber-300 border-amber-800 hover:bg-amber-900/50'
-              : 'bg-emerald-950/40 text-emerald-400 border-emerald-900 hover:bg-emerald-900/40'
-          }`}
-        >
-          {isSimulatedOffline() ? (
-            <>
-              <WifiOff className="w-3.5 h-3.5 text-amber-400" />
-              <span className="font-semibold text-[11px]">Offline Sim</span>
-            </>
-          ) : (
-            <>
-              <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="font-semibold text-[11px] hidden md:inline">Sync Live</span>
-            </>
+        {/* Online / Offline & Supabase Sync Status Indicator (Section E) */}
+        <div className="relative">
+          <button
+            id="btn-navbar-network-status"
+            onClick={() => {
+              setShowNetworkInfo(!showNetworkInfo);
+              setShowUserDropdown(false);
+              setShowNotificationMenu(false);
+              setShowModeDropdown(false);
+            }}
+            title={
+              isActuallyOnline
+                ? 'Online: Mtandao upo, data inasawazishwa Supabase'
+                : 'Offline: Mtandao umekatika! Data hazitasambazwa Supabase kwa sasa'
+            }
+            className={`flex items-center space-x-1.5 text-xs px-2.5 py-1.5 rounded-xl border transition ${
+              isActuallyOnline
+                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800 hover:bg-emerald-900/60'
+                : 'bg-rose-950/80 text-rose-300 border-rose-700 hover:bg-rose-900/80 animate-pulse'
+            }`}
+          >
+            {isActuallyOnline ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="font-bold text-[11px]">Online</span>
+              </>
+            ) : (
+              <>
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+                <WifiOff className="w-3.5 h-3.5 text-rose-400" />
+                <span className="font-extrabold text-[11px] text-rose-200">Offline</span>
+              </>
+            )}
+            <span className="text-[10px] text-slate-400 font-mono hidden xl:inline border-l border-slate-700 pl-1.5">
+              {(getLocalDeviceIdentity()?.name || 'Kifaa').split(' ')[0]}
+            </span>
+          </button>
+
+          {/* Network Details & Supabase Status Dropdown */}
+          {showNetworkInfo && (
+            <div className="absolute right-0 mt-2 w-80 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800 mb-3">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  {isActuallyOnline ? (
+                    <>
+                      <Wifi className="w-4 h-4 text-emerald-400" />
+                      <span>Hali ya Mtandao: Online</span>
+                    </>
+                  ) : (
+                    <>
+                      <WifiOff className="w-4 h-4 text-rose-400" />
+                      <span>Hali ya Mtandao: Offline</span>
+                    </>
+                  )}
+                </span>
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    isActuallyOnline
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                  }`}
+                >
+                  {isActuallyOnline ? 'Supabase Imeunganishwa' : 'Hakuna Mtandao'}
+                </span>
+              </div>
+
+              {isActuallyOnline ? (
+                <div className="space-y-2 text-xs text-slate-300">
+                  <p className="leading-relaxed">
+                    Kifaa kimeunganishwa kwenye mtandao (<code>navigator.onLine = true</code>). Miamala yote ya POS, bidhaa mpya, na wateja inasawazishwa moja kwa moja kwenye hifadhi ya Supabase na vifaa vingine.
+                  </p>
+                  {offlineQueueCount > 0 && (
+                    <div className="p-2 rounded-xl bg-amber-950/40 border border-amber-800 text-amber-300 text-[11px]">
+                      Kuna miamala {offlineQueueCount} iliyohifadhiwa offline inayosubiri kutumwa.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2.5 text-xs">
+                  <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-800 text-rose-200 text-[11px] leading-relaxed">
+                    <p className="font-bold text-rose-300 mb-1">
+                      ⚠️ TAHADHARI YA MTANDAO:
+                    </p>
+                    Kifaa hakina muunganisho wa mtandao (<code>navigator.onLine = false</code>). Data <strong>hazitasambazwa Supabase kwa sasa</strong>.
+                  </div>
+                  <p className="text-slate-300 text-[11px] leading-relaxed">
+                    Mfumo unaendelea kufanya kazi kikamilifu! Mauzo yote yanahifadhiwa kwa usalama kwenye hifadhi ya ndani ya kifaa hiki (Local Offline Storage) na yatasambazwa mtandao ukirudi.
+                  </p>
+                  {offlineQueueCount > 0 && (
+                    <div className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 text-[11px]">
+                      Miamala iliyopo kwenye foleni ya offline: <strong>{offlineQueueCount}</strong>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-3 mt-3 border-t border-slate-800 flex justify-end">
+                <button
+                  onClick={() => {
+                    setShowNetworkInfo(false);
+                    onNavigate('devices');
+                  }}
+                  className="text-xs text-emerald-400 hover:text-emerald-300 font-bold"
+                >
+                  Fungua Usimamizi wa Vifaa & Sync →
+                </button>
+              </div>
+            </div>
           )}
-          <span className="text-[10px] text-slate-400 font-mono hidden xl:inline border-l border-slate-700 pl-1.5">
-            {(getLocalDeviceIdentity()?.name || 'Kifaa').split(' ')[0]}
-          </span>
-        </button>
+        </div>
 
         {/* Notifications & Alerts */}
         <div className="relative">

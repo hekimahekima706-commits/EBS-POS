@@ -23,13 +23,21 @@ interface ChatMessage {
 }
 
 export const AiAssistantView: React.FC = () => {
-  const { products, sales, expenses, debts, suppliers, barVariances, todayStats, businessProfile } = useApp();
+  const { products, sales, expenses, debts, suppliers, barVariances, todayStats, businessProfile, currentUser } = useApp();
+
+  const userRole = (currentUser?.role || 'cashier').toLowerCase();
+  const userName = currentUser?.name || 'Mtumiaji';
+  const isExecutive = ['owner', 'boss', 'admin', 'manager'].includes(userRole);
+
+  const initialWelcomeText = isExecutive
+    ? `Habari Boss ${userName}! Mimi ni **EBS AI Mshauri Mkuu wa Biashara**.\n\nNina uwezo kamili wa kukusaidia kuchambua **MASWALI YOTE** kuhusu biashara yako:\n• Mauzo ya leo (${formatTZS(todayStats.salesRevenue)})\n• Faida Halisi (Net Profit: ${formatTZS(todayStats.netProfit)})\n• Udhibiti wa gharama, stoo, na mwenendo wa wafanyakazi.\n\nChagua swali hapa chini au uliza chochote!`
+    : `Habari ${userName}! Mimi ni **EBS AI Msaidizi wa Kazi za Kila Siku** (${currentUser?.role === 'waiter' ? 'Mhudumu' : currentUser?.role === 'storekeeper' ? 'Mweka Stoo' : 'Keshia'}).\n\nNinaweza kukusaidia kuhusu:\n• Bei za bidhaa na idadi ya stoo\n• Madeni ya wateja na orodha ya bidhaa\n• Kufunga mahesabu ya siku (Shift Closing)\n\n*(Kumbuka: Taarifa za faida na ripoti za umiliki zimefungwa kwa Boss pekee).*`;
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
       sender: 'ai',
-      text: `Habari! Mimi ni **EBS Msaidizi wa Biashara (AI Advisor)**. Nina uwezo wa kuchambua mauzo yako ya leo (${formatTZS(todayStats.salesRevenue)}), faida, bidhaa zinazoisha stoo, madeni ya wateja, na kukupa mbinu za kukuza biashara yako nchini Tanzania.\n\nUnaweza kuniuliza chochote au chagua maswali ya haraka hapa chini!`,
+      text: initialWelcomeText,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -46,13 +54,22 @@ export const AiAssistantView: React.FC = () => {
     scrollToBottom();
   }, [messages, isLoading]);
 
-  const quickPrompts = [
-    '📊 Nipe uchambuzi wa mauzo na faida ya leo',
-    '⚠️ Ni bidhaa gani zipo chini ya kiwango cha chini stoo?',
-    '🍸 Nipe mbinu za kuongeza faida kwenye vinywaji vikali (Bar Mode)',
-    '📱 Andika ujumbe wa heshima wa WhatsApp kuwakumbusha wateja madeni yao',
-    '💡 Je, ni matumizi gani makubwa yanayokata faida yangu mwezi huu?',
-  ];
+  // Role-specific quick prompts
+  const quickPrompts = isExecutive
+    ? [
+        '📊 Nipe uchambuzi kamili wa mauzo na faida ya leo',
+        '⚠️ Ni bidhaa gani zipo chini ya kiwango cha chini stoo?',
+        '🍸 Mbinu za kuongeza faida kwenye vinywaji vikali (Bar Mode)',
+        '📱 Andika ujumbe wa heshima wa WhatsApp kuwakumbusha wateja madeni',
+        '💡 Ni matumizi gani makubwa yanayokata faida yangu mwezi huu?',
+      ]
+    : [
+        '📦 Ni bidhaa zipi zimebaki chache stoo leo?',
+        '💳 Jumla ya madeni ya wateja na orodha ya kulipwa',
+        '🏷️ Bei za bidhaa maarufu na ofa zilizopo kwa wateja',
+        '🧾 Msaada wa kutoa risiti na kurekodi mauzo ya haraka',
+        '🔒 Jinsi ya kufunga hesabu za siku (Shift Closing)',
+      ];
 
   const handleSendMessage = async (customPrompt?: string) => {
     const promptToSend = customPrompt || inputPrompt;
@@ -69,25 +86,45 @@ export const AiAssistantView: React.FC = () => {
     if (!customPrompt) setInputPrompt('');
     setIsLoading(true);
 
-    // Business Data Context to inject into AI prompt
-    const businessContext = {
-      businessName: businessProfile?.name || 'Biashara',
-      currency: businessProfile?.currency || 'TZS',
-      todaySalesCount: todayStats.transactionsCount,
-      todayRevenue: todayStats.salesRevenue,
-      todayProfit: todayStats.grossProfit,
-      todayExpenses: todayStats.expensesTotal,
-      todayNetProfit: todayStats.netProfit,
-      totalProducts: products.filter(isProductActive).length,
-      lowStockProducts: products.filter((p) => isProductActive(p) && p.stockQty <= p.minStock).map((p) => ({
-        name: p.name,
-        stock: p.stockQty,
-        minStock: p.minStock,
-      })),
-      totalOutstandingDebts: debts.filter((d) => d.status !== 'paid').reduce((s, d) => s + d.remainingAmount, 0),
-      unpaidDebtsCount: debts.filter((d) => d.status !== 'paid').length,
-      barItemsVarianceCount: barVariances.length,
-    };
+    // Business Data Context to inject into AI prompt (Strict RBAC filtering)
+    const businessContext = isExecutive
+      ? {
+          businessName: businessProfile?.name || 'Biashara',
+          currency: businessProfile?.currency || 'TZS',
+          todaySalesCount: todayStats.transactionsCount,
+          todayRevenue: todayStats.salesRevenue,
+          todayProfit: todayStats.grossProfit,
+          todayExpenses: todayStats.expensesTotal,
+          todayNetProfit: todayStats.netProfit,
+          totalProducts: products.filter(isProductActive).length,
+          lowStockProducts: products.filter((p) => isProductActive(p) && p.stockQty <= p.minStock).map((p) => ({
+            name: p.name,
+            stock: p.stockQty,
+            minStock: p.minStock,
+          })),
+          totalOutstandingDebts: debts.filter((d) => d.status !== 'paid').reduce((s, d) => s + d.remainingAmount, 0),
+          unpaidDebtsCount: debts.filter((d) => d.status !== 'paid').length,
+          barItemsVarianceCount: barVariances.length,
+          currentUserRole: userRole,
+          currentUserName: userName,
+        }
+      : {
+          businessName: businessProfile?.name || 'Biashara',
+          currency: businessProfile?.currency || 'TZS',
+          todaySalesCount: todayStats.transactionsCount,
+          todayRevenue: todayStats.salesRevenue,
+          // Operational metrics only - NO profits or margins for cashier/waiter/store
+          totalProducts: products.filter(isProductActive).length,
+          lowStockProducts: products.filter((p) => isProductActive(p) && p.stockQty <= p.minStock).map((p) => ({
+            name: p.name,
+            stock: p.stockQty,
+            minStock: p.minStock,
+          })),
+          totalOutstandingDebts: debts.filter((d) => d.status !== 'paid').reduce((s, d) => s + d.remainingAmount, 0),
+          unpaidDebtsCount: debts.filter((d) => d.status !== 'paid').length,
+          currentUserRole: userRole,
+          currentUserName: userName,
+        };
 
     try {
       const savedServer = typeof window !== 'undefined' ? localStorage.getItem('ebs_server_url') || '' : '';
@@ -112,6 +149,7 @@ export const AiAssistantView: React.FC = () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 6000);
 
+      // Section B: Attach userRole and userName to every request to enforce RBAC
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -119,6 +157,9 @@ export const AiAssistantView: React.FC = () => {
         body: JSON.stringify({
           message: promptToSend,
           prompt: promptToSend,
+          userRole,
+          role: userRole,
+          userName,
           businessContext,
           businessData: businessContext,
         }),
@@ -143,7 +184,6 @@ export const AiAssistantView: React.FC = () => {
       setMessages((prev) => [...prev, aiMsg]);
     } catch (error) {
       console.warn('AI remote call switched to local intelligent advisor:', error);
-      // Seamlessly generate local AI analysis so business never gets blocked or sees "service unavailable"
       const localAnalysis = getLocalAiAdvisorResponse(promptToSend, businessContext);
       const fallbackMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -159,6 +199,13 @@ export const AiAssistantView: React.FC = () => {
 
   function getLocalAiAdvisorResponse(query: string, ctx: any): string {
     const q = (query || '').toLowerCase();
+
+    // Section B: Absolute Prohibition for Cashier / Waiter / Storekeeper on profit queries
+    if (!isExecutive && (q.includes('faida') || q.includes('profit') || q.includes('margin') || q.includes('mapato ya biashara') || q.includes('gharama'))) {
+      const roleTitle = userRole === 'waiter' ? 'mhudumu' : userRole === 'storekeeper' ? 'mweka stoo' : 'keshia';
+      return `🔒 **Ulinzi wa Taarifa za Biashara (Maka ya AI):**\n\nSamahani ${userName}, kama **${roleTitle}**, huna mamlaka ya kuona taarifa za faida ghafi, gharama za biashara au faida halisi.\n\nNinaweza kukusaidia kuhusu:\n• Bei za bidhaa na idadi ya stoo\n• Madeni ya wateja na orodha ya bidhaa\n• Kufunga mahesabu ya siku (Shift Close)`;
+    }
+
     const rev = ctx.todayRevenue || 0;
     const profit = ctx.todayProfit || 0;
     const exp = ctx.todayExpenses || 0;
@@ -167,7 +214,11 @@ export const AiAssistantView: React.FC = () => {
     const debtsTotal = ctx.totalOutstandingDebts || 0;
 
     if (q.includes('mauzo') || q.includes('faida') || q.includes('uchambuzi')) {
-      return `📊 **Uchambuzi Mahiri wa Mauzo na Faida ya Leo (${ctx.businessName || 'Biashara'}):**\n\n• **Jumla ya Mauzo:** ${formatTZS(rev)} (${ctx.todaySalesCount} stakabadhi zimetolewa)\n• **Faida ya Mauzo (Gross Profit):** ${formatTZS(profit)}\n• **Gharama za Leo (Expenses):** ${formatTZS(exp)}\n• **Faida Halisi (Net Profit):** ${formatTZS(net)}\n\n💡 *Ushauri wa EBS:* ${net > 0 ? 'Mwenendo wa leo ni mzuri na faida ipo chanya. Hakikisha fedha zote taslimu na za lipa namba zimehakikiwa kabla ya kubadili shift.' : 'Mauzo ya leo bado yanahitaji kuongezwa kufidia gharama. Zingatia kuweka ofa au kuwahimiza wahudumu kupendekeza bidhaa za ziada kwa wateja.'}`;
+      if (isExecutive) {
+        return `📊 **Uchambuzi Mahiri wa Mauzo na Faida ya Leo (${ctx.businessName || 'Biashara'}):**\n\n• **Jumla ya Mauzo:** ${formatTZS(rev)} (${ctx.todaySalesCount} stakabadhi zimetolewa)\n• **Faida ya Mauzo (Gross Profit):** ${formatTZS(profit)}\n• **Gharama za Leo (Expenses):** ${formatTZS(exp)}\n• **Faida Halisi (Net Profit):** ${formatTZS(net)}\n\n💡 *Ushauri wa EBS:* ${net > 0 ? 'Mwenendo wa leo ni mzuri na faida ipo chanya. Hakikisha fedha zote taslimu na za lipa namba zimehakikiwa kabla ya kubadili shift.' : 'Mauzo ya leo bado yanahitaji kuongezwa kufidia gharama. Zingatia kuweka ofa au kuwahimiza wahudumu kupendekeza bidhaa za ziada kwa wateja.'}`;
+      } else {
+        return `📊 **Muhtasari wa Mauzo ya Leo (${ctx.businessName || 'Duka'}):**\n\n• **Jumla ya Mauzo Yaliyorekodiwa:** ${formatTZS(rev)}\n• **Idadi ya Miamala:** ${ctx.todaySalesCount || 0}\n\n💡 *Ushauri wa Keshia:* Hakikisha miamala yote ya Cash na mitandao ya simu inalingana na pesa iliyopo kwenye droo kabla ya kufunga siku.`;
+      }
     }
 
     if (q.includes('stoo') || q.includes('chini') || q.includes('kiwango') || q.includes('isha')) {
