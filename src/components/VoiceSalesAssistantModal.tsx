@@ -7,6 +7,8 @@ import {
   sendVoiceCommand,
   VoiceCommandResult,
 } from '../utils/audioVoiceService';
+import { Capacitor } from '@capacitor/core';
+import { VoiceRecorder } from 'capacitor-voice-recorder';
 import {
   Mic,
   MicOff,
@@ -21,7 +23,9 @@ import {
   Send,
   AlertCircle,
   X,
+  HelpCircle,
 } from 'lucide-react';
+import { VoiceCommandsHelpModal } from './VoiceCommandsHelpModal';
 
 interface VoiceSalesAssistantModalProps {
   isOpen: boolean;
@@ -43,6 +47,7 @@ export const VoiceSalesAssistantModal: React.FC<VoiceSalesAssistantModalProps> =
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showCheatSheetModal, setShowCheatSheetModal] = useState<boolean>(false);
 
   // Pending draft sale state
   const [pendingDraftItems, setPendingDraftItems] = useState<
@@ -113,15 +118,48 @@ export const VoiceSalesAssistantModal: React.FC<VoiceSalesAssistantModalProps> =
     }
   }, []);
 
-  // Start speech listening
-  const startListening = () => {
+  // Explicit runtime microphone permission check using Capacitor Permissions API (Android/iOS & Web)
+  const requestMicrophonePermission = async (): Promise<boolean> => {
+    try {
+      // 1. Primary: Use Capacitor VoiceRecorder Permissions API for native Android runtime dialog
+      if (Capacitor.isPluginAvailable('VoiceRecorder')) {
+        const canRecord = await VoiceRecorder.canDeviceVoiceRecord().catch(() => ({ value: true }));
+        if (!canRecord.value) {
+          console.warn('Device hardware does not support voice recording');
+        }
+
+        const permResult = await VoiceRecorder.requestAudioRecordingPermission();
+        if (permResult.value) {
+          return true;
+        }
+      }
+
+      // 2. Web / Browser fallback using getUserMedia to trigger browser permission prompt
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+        return true;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('Microphone permission request failed:', err);
+      setErrorMessage('Ruhusa ya maikrofoni (Microphone Permission) inahitajika. Tafadhali ruhusu maikrofoni kwenye kifaa hiki.');
+      return false;
+    }
+  };
+
+  // Start speech listening with permission check
+  const startListening = async () => {
     setErrorMessage(null);
     setTranscript('');
+    
+    const hasPermission = await requestMicrophonePermission();
+    if (!hasPermission) return;
+
     if (recognitionRef.current) {
       try {
         recognitionRef.current.start();
       } catch (err) {
-        // Recognition might already be running
         recognitionRef.current.stop();
         setTimeout(() => {
           try {
@@ -326,15 +364,27 @@ export const VoiceSalesAssistantModal: React.FC<VoiceSalesAssistantModalProps> =
               </p>
             </div>
           </div>
-          <button
-            onClick={() => {
-              stopListening();
-              onClose();
-            }}
-            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setShowCheatSheetModal(true)}
+              className="p-1.5 sm:px-3 sm:py-1.5 text-purple-300 hover:text-white rounded-xl bg-purple-900/40 hover:bg-purple-900/60 border border-purple-500/30 transition flex items-center gap-1.5 text-xs font-bold"
+              title="Mwongozo wa Amri za Sauti (Cheat Sheet)"
+            >
+              <HelpCircle className="w-4 h-4 text-purple-400" />
+              <span className="hidden sm:inline">Mwongozo wa Amri</span>
+            </button>
+            <button
+              onClick={() => {
+                stopListening();
+                onClose();
+              }}
+              className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition"
+              title="Funga"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Modal Body */}
@@ -573,6 +623,17 @@ export const VoiceSalesAssistantModal: React.FC<VoiceSalesAssistantModalProps> =
           </div>
         </div>
       </div>
+
+      {/* Voice Commands Help Cheat Sheet Modal */}
+      <VoiceCommandsHelpModal
+        isOpen={showCheatSheetModal}
+        onClose={() => setShowCheatSheetModal(false)}
+        onSelectCommand={(cmd) => {
+          const phrase = cmd.exampleSpoken || cmd.textSw;
+          setTranscript(phrase);
+          handleProcessVoiceCommand(phrase);
+        }}
+      />
     </div>
   );
 };

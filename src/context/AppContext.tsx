@@ -50,7 +50,14 @@ import {
 } from '../data/initialData';
 import { hashPassword, validatePasswordStrength } from '../utils/security';
 import { isProductActive, isDemoProduct } from '../utils/productUtils';
-import { hasPermission as checkHasPermission, ROLE_DEFAULT_PERMISSIONS } from '../utils/permissions';
+import {
+  hasPermission as checkHasPermission,
+  ROLE_DEFAULT_PERMISSIONS,
+  canUserCreateProduct,
+  canUserEditProduct,
+  canUserDeleteProduct,
+  canUserAdjustStock
+} from '../utils/permissions';
 import { TranslationKey, t as translateHelper } from '../i18n/translations';
 import {
   getLocalDeviceIdentity,
@@ -58,7 +65,11 @@ import {
   enqueueOfflineTransaction,
   pushSyncQueueToServer,
   pullDeltaFromServer,
-  isSimulatedOffline
+  isSimulatedOffline,
+  isSystemOnline,
+  registerCurrentDeviceOnServer,
+  sendDeviceHeartbeat,
+  getApiBaseUrl
 } from '../utils/syncEngine';
 import { registerBusinessOwner, generateUUID } from '../utils/authService';
 
@@ -232,7 +243,63 @@ interface AppContextType {
     lowStockCount: number;
     overdueDebtsCount: number;
   };
+
+  // Offline-First Sync Engine Status & Control (EBS Vision 1.3)
+  isSyncing: boolean;
+  lastSyncTime: string | null;
+  triggerManualSync: () => Promise<void>;
 }
+
+export const deduplicateUsers = (userList: (User | null | undefined)[]): User[] => {
+  if (!Array.isArray(userList)) return [];
+  const seenIds = new Set<string>();
+  const seenUsernames = new Map<string, string>(); // lowercase username -> user id
+  const result: User[] = [];
+
+  for (const raw of userList) {
+    if (!raw || typeof raw !== 'object') continue;
+    let u: User = { ...raw };
+    const rawId = (u.id || '').trim();
+    const username = (u.username || '').toLowerCase().trim();
+
+    // Determine unique ID
+    if (!rawId) {
+      u.id = `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    } else if (seenIds.has(rawId)) {
+      // Collision on ID! Check if this is the exact same user
+      const existingWithSameId = result.find((item) => item.id === rawId);
+      if (existingWithSameId && (!username || existingWithSameId.username.toLowerCase().trim() === username)) {
+        // True duplicate of the exact same account: merge non-empty attributes and skip adding duplicate copy
+        if (!existingWithSameId.phone && u.phone) existingWithSameId.phone = u.phone;
+        if (!existingWithSameId.email && u.email) existingWithSameId.email = u.email;
+        if (existingWithSameId.active === undefined && u.active !== undefined) existingWithSameId.active = u.active;
+        continue;
+      }
+      // Different user that was accidentally assigned the same ID (e.g. both got 'usr-1')
+      u.id = `${rawId}-${Math.random().toString(36).substring(2, 7)}`;
+    }
+
+    // Now check username collision if username is present
+    if (username) {
+      if (seenUsernames.has(username)) {
+        // Another user already has this username: merge non-empty attributes and skip duplicate
+        const existingUserId = seenUsernames.get(username);
+        const existing = result.find((item) => item.id === existingUserId);
+        if (existing) {
+          if (!existing.phone && u.phone) existing.phone = u.phone;
+          if (!existing.email && u.email) existing.email = u.email;
+          if (existing.active === undefined && u.active !== undefined) existing.active = u.active;
+        }
+        continue;
+      }
+      seenUsernames.set(username, u.id);
+    }
+
+    seenIds.add(u.id);
+    result.push(u);
+  }
+  return result;
+};
 
 const STORAGE_KEY = 'ebs_tanzania_data_v1_1';
 
@@ -267,16 +334,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const parsed: User[] = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           // Safely migrate and repair any seed user accounts that had corrupted hashes or obsolete demo credentials
-          return parsed.filter(Boolean).map((u) => {
-            if (!u || typeof u !== 'object') return INITIAL_USERS[0];
+          const rawProcessed = parsed.filter(Boolean).map((u) => {
+            if (!u || typeof u !== 'object') return null;
             // If this is the seed owner account or has corrupted legacy hash, safely sync with production credentials
             if (u?.id === 'usr-1' || (u?.role === 'owner' && (u?.passwordHash === '8e1b6f04c64b58e72614b62db419c8f9db1c3ca5e1f0e2d36d4dfbcbfb1d8481' || u?.username === 'amani' || u?.username === 'elly'))) {
               return {
                 ...u,
-                id: 'usr-1',
-                username: 'owner01',
+                id: u?.id || 'usr-1',
+                username: u?.username || 'owner01',
                 name: u?.name || 'Selemani Rashid (Owner)',
-                passwordHash: 'e1b642412970a6c896342c5e199144d5f53c093f8fcbffe304b2d4432db3c1af',
+                passwordHash: u?.passwordHash && u?.passwordHash !== '8e1b6f04c64b58e72614b62db419c8f9db1c3ca5e1f0e2d36d4dfbcbfb1d8481' ? u.passwordHash : 'e1b642412970a6c896342c5e199144d5f53c093f8fcbffe304b2d4432db3c1af',
                 mustChangePassword: true,
                 pin: u?.pin || '1234',
                 failedLoginAttempts: 0,
@@ -300,30 +367,65 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               };
             }
             return u;
-          });
+          }).filter(Boolean) as User[];
+
+          const deduplicated = deduplicateUsers(rawProcessed);
+          if (deduplicated.length > 0) {
+            if (deduplicated.length !== parsed.length) {
+              try {
+                localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(deduplicated));
+              } catch {}
+            }
+            return deduplicated;
+          }
         }
       }
       const legacy = localStorage.getItem('ebs_tanzania_data_v1_users');
       if (legacy) {
         const parsed: User[] = JSON.parse(legacy);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.filter(Boolean).map((u) => {
-            if (!u || typeof u !== 'object') return INITIAL_USERS[0];
+          const rawProcessed = parsed.filter(Boolean).map((u, idx) => {
+            if (!u || typeof u !== 'object') return null;
             const initMatch = INITIAL_USERS.find((iu) => iu?.id === u?.id || (u?.username && iu?.username === u.username));
             return {
               ...u,
-              id: u?.id || (initMatch ? initMatch.id : 'usr-1'),
+              id: u?.id || (initMatch ? initMatch.id : `usr-leg-${idx + 1}`),
               passwordHash: (initMatch ? initMatch.passwordHash : 'e1b642412970a6c896342c5e199144d5f53c093f8fcbffe304b2d4432db3c1af'),
               createdAt: u?.createdAt || new Date().toISOString(),
-              permissions: u?.permissions || (initMatch ? initMatch.permissions : INITIAL_USERS[0].permissions),
+              permissions: u?.permissions || (initMatch ? initMatch.permissions : INITIAL_USERS[0]?.permissions || {
+                canViewReports: false,
+                canViewProfit: false,
+                canManageUsers: false,
+                canManagePermissions: false,
+                canManageCCTV: false,
+                canViewAuditLogs: false,
+                canManageSettings: false,
+                canBackupRestore: false,
+                canManageStock: false,
+                canAdjustStock: false,
+                canManageProducts: false,
+                canMakeSales: true,
+                canDeleteSales: false,
+                canGiveDiscount: false,
+                canRefundSale: false,
+                canManageCustomers: true,
+                canManageSuppliers: false,
+                canManageExpenses: false,
+                canManageTables: false,
+                canAccessBarMode: false
+              }),
             };
-          });
+          }).filter(Boolean) as User[];
+          const deduplicated = deduplicateUsers(rawProcessed);
+          if (deduplicated.length > 0) {
+            return deduplicated;
+          }
         }
       }
     } catch (e) {
       console.error('Error loading users:', e);
     }
-    return INITIAL_USERS;
+    return deduplicateUsers(INITIAL_USERS);
   });
 
   // Auth & Session State (Must NOT be true without valid user session)
@@ -581,7 +683,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     try {
       localStorage.setItem(`${STORAGE_KEY}_profile`, JSON.stringify(profile));
-      localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(users));
+      localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(deduplicateUsers(users)));
       localStorage.setItem(`${STORAGE_KEY}_current_user`, JSON.stringify(currentUser));
       localStorage.setItem(`${STORAGE_KEY}_is_authenticated`, JSON.stringify(isAuthenticated));
       localStorage.setItem(`${STORAGE_KEY}_is_locked`, JSON.stringify(isLocked));
@@ -681,6 +783,422 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       clearInterval(interval);
     };
   }, [sessionTimeoutMinutes, isAuthenticated, isLocked, currentUser, logAction]);
+
+  // ----------------------------------------------------
+  // EBS VISION 1.3: STEP 1 — BACKGROUND SYNCHRONIZATION
+  // ----------------------------------------------------
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const isSyncingRef = useRef<boolean>(false);
+  const lastSyncTimestampRef = useRef<string | undefined>(undefined);
+
+  // Helper to determine the active valid businessId (Requirement 2 & 10)
+  const getActiveBusinessId = useCallback((): string | null => {
+    const bizId =
+      currentUser?.businessId ||
+      (typeof window !== 'undefined' ? localStorage.getItem('ebs_business_id') : null) ||
+      (profile as any)?.businessId ||
+      (profile as any)?.id ||
+      null;
+
+    if (!bizId || typeof bizId !== 'string') return null;
+    const trimmed = bizId.trim();
+    if (!trimmed || trimmed === 'biz_default' || trimmed === 'Local') {
+      return null;
+    }
+    return trimmed;
+  }, [currentUser?.businessId, (profile as any)?.businessId, (profile as any)?.id]);
+
+  // Main Background Sync Execution (Requirement 3, 8, 13, 15)
+  const performBackgroundSync = useCallback(async (): Promise<void> => {
+    // 1. Guard against concurrent sync runs (Requirement 15)
+    if (isSyncingRef.current) {
+      return;
+    }
+
+    // 2. Guard against invalid business ID (Requirement 2 & 10)
+    const activeBizId = getActiveBusinessId();
+    if (!activeBizId) {
+      return;
+    }
+
+    // 3. Guard against offline state (Requirement 6)
+    if (!isSystemOnline() || isSimulatedOffline()) {
+      return;
+    }
+
+    const device = getLocalDeviceIdentity();
+    const deviceId = device?.id || 'DEV-WEB-DEFAULT';
+    const token = typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined;
+
+    isSyncingRef.current = true;
+    setIsSyncing(true);
+
+    try {
+      // 4. Push pending local transactions from sync queue to server (Requirement 3 & Step 5)
+      const pushRes = await pushSyncQueueToServer(activeBizId, deviceId, token);
+      if (pushRes && pushRes.results && pushRes.results.length > 0) {
+        const syncedIds = new Set(
+          pushRes.results.filter((r) => r.status === 'synced').map((r) => r.localId)
+        );
+        if (syncedIds.size > 0) {
+          setSales((prev) =>
+            prev.map((s) => {
+              if (
+                (s.clientTransactionId && syncedIds.has(s.clientTransactionId)) ||
+                syncedIds.has(s.id)
+              ) {
+                return { ...s, syncStatus: 'synced' };
+              }
+              return s;
+            })
+          );
+        }
+      }
+
+      // 5. Pull remote delta changes from server (Requirement 3 & 11)
+      const delta = await pullDeltaFromServer(activeBizId, deviceId, lastSyncTimestampRef.current, token);
+
+      if (delta && typeof delta === 'object') {
+        if (delta.timestamp) {
+          lastSyncTimestampRef.current = delta.timestamp;
+          setLastSyncTime(new Date().toLocaleTimeString('sw-TZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        }
+
+        // 6. Merge remote changes into local state without losing local data (Requirement 3 & 13)
+        // A. Merge Sales
+        if (Array.isArray(delta.sales) && delta.sales.length > 0) {
+          setSales((prevSales) => {
+            const saleMap = new Map<string, Sale>();
+            const txMap = new Map<string, string>(); // clientTransactionId -> saleId
+
+            // Retain local sales
+            prevSales.forEach((s) => {
+              saleMap.set(s.id, s);
+              if (s.clientTransactionId) {
+                txMap.set(s.clientTransactionId, s.id);
+              }
+            });
+            let hasChanges = false;
+
+            delta.sales.forEach((remoteSale: Sale) => {
+              const matchedId = saleMap.has(remoteSale.id)
+                ? remoteSale.id
+                : remoteSale.clientTransactionId
+                ? txMap.get(remoteSale.clientTransactionId)
+                : undefined;
+
+              const existing = matchedId ? saleMap.get(matchedId) : undefined;
+              if (!existing) {
+                saleMap.set(remoteSale.id, { ...remoteSale, syncStatus: 'synced' });
+                if (remoteSale.clientTransactionId) {
+                  txMap.set(remoteSale.clientTransactionId, remoteSale.id);
+                }
+                hasChanges = true;
+              } else {
+                if (
+                  existing.syncStatus !== 'synced' ||
+                  existing.status !== remoteSale.status ||
+                  existing.total !== remoteSale.total ||
+                  (existing.refundReason || '') !== (remoteSale.refundReason || '')
+                ) {
+                  saleMap.set(existing.id, {
+                    ...existing,
+                    ...remoteSale,
+                    syncStatus: 'synced'
+                  });
+                  hasChanges = true;
+                }
+              }
+            });
+
+            if (!hasChanges) return prevSales;
+            return Array.from(saleMap.values()).sort(
+              (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            );
+          });
+        }
+
+        // B. Merge Products
+        if (Array.isArray(delta.products) && delta.products.length > 0) {
+          setProducts((prevProducts) => {
+            const productMap = new Map<string, Product>();
+            prevProducts.forEach((p) => productMap.set(p.id, p));
+            let hasChanges = false;
+
+            delta.products.forEach((remoteProd: Product) => {
+              const existing = productMap.get(remoteProd.id);
+              if (!existing) {
+                productMap.set(remoteProd.id, remoteProd);
+                hasChanges = true;
+              } else if (
+                existing.stockQty !== remoteProd.stockQty ||
+                existing.sellingPrice !== remoteProd.sellingPrice ||
+                existing.buyingPrice !== remoteProd.buyingPrice ||
+                existing.active !== remoteProd.active ||
+                existing.name !== remoteProd.name
+              ) {
+                productMap.set(remoteProd.id, { ...existing, ...remoteProd });
+                hasChanges = true;
+              }
+            });
+
+            if (!hasChanges) return prevProducts;
+            return Array.from(productMap.values());
+          });
+        }
+
+        // C. Merge Customers
+        if (Array.isArray(delta.customers) && delta.customers.length > 0) {
+          setCustomers((prevCustomers) => {
+            const customerMap = new Map<string, Customer>();
+            prevCustomers.forEach((c) => customerMap.set(c.id, c));
+            let hasChanges = false;
+
+            delta.customers.forEach((remoteCust: Customer) => {
+              const existing = customerMap.get(remoteCust.id);
+              if (!existing) {
+                customerMap.set(remoteCust.id, remoteCust);
+                hasChanges = true;
+              } else if (
+                existing.currentDebt !== remoteCust.currentDebt ||
+                existing.totalSpent !== remoteCust.totalSpent ||
+                existing.name !== remoteCust.name ||
+                existing.phone !== remoteCust.phone
+              ) {
+                customerMap.set(remoteCust.id, { ...existing, ...remoteCust });
+                hasChanges = true;
+              }
+            });
+
+            if (!hasChanges) return prevCustomers;
+            return Array.from(customerMap.values());
+          });
+        }
+
+        // D. Merge Debts
+        if (Array.isArray(delta.debts) && delta.debts.length > 0) {
+          setDebts((prevDebts) => {
+            const debtMap = new Map<string, DebtRecord>();
+            prevDebts.forEach((d) => debtMap.set(d.id, d));
+            let hasChanges = false;
+
+            delta.debts.forEach((remoteDebt: DebtRecord) => {
+              const existing = debtMap.get(remoteDebt.id);
+              if (!existing) {
+                debtMap.set(remoteDebt.id, remoteDebt);
+                hasChanges = true;
+              } else if (
+                existing.status !== remoteDebt.status ||
+                existing.remainingAmount !== remoteDebt.remainingAmount ||
+                existing.originalAmount !== remoteDebt.originalAmount
+              ) {
+                debtMap.set(remoteDebt.id, { ...existing, ...remoteDebt });
+                hasChanges = true;
+              }
+            });
+
+            if (!hasChanges) return prevDebts;
+            return Array.from(debtMap.values());
+          });
+        }
+
+        // E. Merge Expenses
+        if (Array.isArray(delta.expenses) && delta.expenses.length > 0) {
+          setExpenses((prevExpenses) => {
+            const expMap = new Map<string, Expense>();
+            prevExpenses.forEach((e) => expMap.set(e.id, e));
+            let hasChanges = false;
+
+            delta.expenses.forEach((remoteExp: Expense) => {
+              if (!expMap.has(remoteExp.id)) {
+                expMap.set(remoteExp.id, remoteExp);
+                hasChanges = true;
+              }
+            });
+
+            if (!hasChanges) return prevExpenses;
+            return Array.from(expMap.values()).sort(
+              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+            );
+          });
+        }
+
+        // F. Merge Users (EBS VISION 1.3 - STEP 4 PHASE 2B)
+        if (Array.isArray(delta.users) && delta.users.length > 0) {
+          setUsers((prevUsers) => {
+            const userMap = new Map<string, User>();
+            prevUsers.forEach((u) => {
+              if (u && u.id) {
+                userMap.set(u.id, u);
+              }
+            });
+
+            let hasChanges = false;
+            delta.users.forEach((remoteUser: Partial<User> & { id: string; businessId?: string }) => {
+              // Strict tenant isolation: only accept users that match the active business ID
+              if (remoteUser.businessId && remoteUser.businessId !== activeBizId) {
+                return;
+              }
+
+              const existing = userMap.get(remoteUser.id);
+              if (!existing) {
+                // New user created on another authorized device
+                const safeNewUser: User = {
+                  id: remoteUser.id,
+                  businessId: activeBizId,
+                  branchId: remoteUser.branchId,
+                  name: remoteUser.name || 'Mtumiaji',
+                  username: remoteUser.username || `user_${remoteUser.id}`,
+                  role: remoteUser.role || 'cashier',
+                  phone: remoteUser.phone || '',
+                  email: remoteUser.email || '',
+                  passwordHash: '', // Password material is never synchronized
+                  active: remoteUser.active !== undefined ? remoteUser.active : true,
+                  createdAt: remoteUser.createdAt || new Date().toISOString(),
+                  mustChangePassword: remoteUser.mustChangePassword ?? true,
+                  permissions: remoteUser.permissions || {
+                    canViewReports: false,
+                    canViewProfit: false,
+                    canManageUsers: false,
+                    canManagePermissions: false,
+                    canManageCCTV: false,
+                    canViewAuditLogs: false,
+                    canManageSettings: false,
+                    canBackupRestore: false,
+                    canManageStock: false,
+                    canAdjustStock: false,
+                    canManageProducts: false,
+                    canMakeSales: true,
+                    canDeleteSales: false,
+                    canGiveDiscount: false,
+                    canRefundSale: false,
+                    canManageCustomers: true,
+                    canManageSuppliers: false,
+                    canManageExpenses: false,
+                    canManageTables: true,
+                    canAccessBarMode: true
+                  },
+                  granularPermissions: remoteUser.granularPermissions,
+                  canDiscount: remoteUser.canDiscount,
+                  canRefund: remoteUser.canRefund,
+                  canAdjustStock: remoteUser.canAdjustStock,
+                  canViewProfit: remoteUser.canViewProfit,
+                  canManageUsers: remoteUser.canManageUsers,
+                  syncStatus: 'synced'
+                };
+                userMap.set(remoteUser.id, safeNewUser);
+                hasChanges = true;
+              } else {
+                // Existing user: check for differences in role, active, permissions, name, etc.
+                const isRoleChanged = remoteUser.role && remoteUser.role !== existing.role;
+                const isActiveChanged = remoteUser.active !== undefined && remoteUser.active !== existing.active;
+                const isNameChanged = remoteUser.name && remoteUser.name !== existing.name;
+                const isPhoneChanged = remoteUser.phone !== undefined && remoteUser.phone !== existing.phone;
+                const isEmailChanged = remoteUser.email !== undefined && remoteUser.email !== existing.email;
+                const isMustChangePassChanged = remoteUser.mustChangePassword !== undefined && remoteUser.mustChangePassword !== existing.mustChangePassword;
+                const isPermissionsChanged = remoteUser.permissions && JSON.stringify(remoteUser.permissions) !== JSON.stringify(existing.permissions);
+                const isGranularChanged = remoteUser.granularPermissions && JSON.stringify(remoteUser.granularPermissions) !== JSON.stringify(existing.granularPermissions);
+
+                if (isRoleChanged || isActiveChanged || isNameChanged || isPhoneChanged || isEmailChanged || isMustChangePassChanged || isPermissionsChanged || isGranularChanged) {
+                  const updated: User = {
+                    ...existing,
+                    ...(remoteUser.name ? { name: remoteUser.name } : {}),
+                    ...(remoteUser.username ? { username: remoteUser.username } : {}),
+                    ...(remoteUser.phone !== undefined ? { phone: remoteUser.phone } : {}),
+                    ...(remoteUser.email !== undefined ? { email: remoteUser.email } : {}),
+                    ...(remoteUser.role ? { role: remoteUser.role } : {}),
+                    ...(remoteUser.active !== undefined ? { active: remoteUser.active } : {}),
+                    ...(remoteUser.permissions ? { permissions: { ...existing.permissions, ...remoteUser.permissions } } : {}),
+                    ...(remoteUser.granularPermissions ? { granularPermissions: { ...(existing.granularPermissions || {}), ...remoteUser.granularPermissions } } : {}),
+                    ...(remoteUser.canDiscount !== undefined ? { canDiscount: remoteUser.canDiscount } : {}),
+                    ...(remoteUser.canRefund !== undefined ? { canRefund: remoteUser.canRefund } : {}),
+                    ...(remoteUser.canAdjustStock !== undefined ? { canAdjustStock: remoteUser.canAdjustStock } : {}),
+                    ...(remoteUser.canViewProfit !== undefined ? { canViewProfit: remoteUser.canViewProfit } : {}),
+                    ...(remoteUser.canManageUsers !== undefined ? { canManageUsers: remoteUser.canManageUsers } : {}),
+                    ...(remoteUser.mustChangePassword !== undefined ? { mustChangePassword: remoteUser.mustChangePassword } : {}),
+                    syncStatus: 'synced'
+                  };
+                  userMap.set(remoteUser.id, updated);
+                  hasChanges = true;
+
+                  // Real-time update if currentUser is this user
+                  setCurrentUser((prev) => {
+                    if (prev?.id === remoteUser.id) {
+                      return {
+                        ...prev,
+                        ...updated,
+                        passwordHash: prev.passwordHash || existing.passwordHash
+                      };
+                    }
+                    return prev;
+                  });
+                }
+              }
+            });
+
+            const mergedUsers = deduplicateUsers(Array.from(userMap.values()));
+            if (!hasChanges && mergedUsers.length === prevUsers.length) return prevUsers;
+            try {
+              localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(mergedUsers));
+            } catch (e) {
+              console.warn('[Sync Engine] Failed to save merged users to localStorage:', e);
+            }
+            return mergedUsers;
+          });
+        }
+      }
+    } catch (syncErr) {
+      // Non-blocking silent warning (Requirement 8)
+      console.warn('[Background Sync] Cycle notice:', syncErr);
+    } finally {
+      isSyncingRef.current = false;
+      setIsSyncing(false);
+    }
+  }, [getActiveBusinessId]);
+
+  // Periodic Background Sync Loop, Automatic Device Registration & Heartbeat (EBS VISION 1.3 - STEP 3)
+  useEffect(() => {
+    const activeBizId = getActiveBusinessId();
+    // Do not run sync loop if no valid businessId (Requirement 2 & 10)
+    if (!activeBizId) {
+      return;
+    }
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined;
+
+    // Automatic Device Registration on Startup / Session Ready (Task 2)
+    registerCurrentDeviceOnServer(activeBizId, currentUser || undefined, token).catch(() => {});
+
+    // Initial sync trigger after 2.5s once app initialization is ready
+    const initialTimer = setTimeout(() => {
+      performBackgroundSync().catch(() => {});
+      sendDeviceHeartbeat(activeBizId, currentUser || undefined, token).catch(() => {});
+    }, 2500);
+
+    // Periodic Background Sync & Heartbeat every 20 seconds (Task 3)
+    const syncInterval = setInterval(() => {
+      performBackgroundSync().catch(() => {});
+      sendDeviceHeartbeat(activeBizId, currentUser || undefined, token).catch(() => {});
+    }, 20000);
+
+    // Reconnection Listener: triggers sync and heartbeat immediately when network is restored
+    const handleOnline = () => {
+      if (!isSimulatedOffline()) {
+        performBackgroundSync().catch(() => {});
+        sendDeviceHeartbeat(activeBizId, currentUser || undefined, token).catch(() => {});
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+
+    // Cleanup interval and event listener on unmount or business change
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(syncInterval);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [getActiveBusinessId, performBackgroundSync, currentUser?.id, currentUser?.businessId, currentUser?.role]);
 
   // Granular & Role RBAC Permission Checkers
   const hasGranularPermission = useCallback((permissionKey: AnyPermissionKey): boolean => {
@@ -900,9 +1418,154 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Authentication & Passwords
   const loginUser = useCallback(async (usernameOrPhone: string, pass: string): Promise<AuthResponse> => {
-    const cleanIdentifier = usernameOrPhone.toLowerCase().trim();
-    const cleanPhone = usernameOrPhone.replace(/\D/g, '');
+    const cleanIdentifier = (usernameOrPhone || '').toLowerCase().trim();
+    const cleanPhone = (usernameOrPhone || '').replace(/\D/g, '');
 
+    if (!cleanIdentifier && !cleanPhone) {
+      return { success: false, message: 'Tafadhali ingiza Username au Namba ya Simu.' };
+    }
+    if (!pass) {
+      return { success: false, message: 'Tafadhali ingiza Neno la Siri (Password).' };
+    }
+
+    const device = getLocalDeviceIdentity();
+
+    // 1. Try Central Server API first if online (Enables Remote Boss Login from phone browser)
+    if (isSystemOnline() && !isSimulatedOffline()) {
+      try {
+        const apiBase = getApiBaseUrl();
+        const apiUrl = `${apiBase}/api/auth/login`;
+
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: cleanIdentifier,
+            password: pass,
+            deviceId: device.id,
+            deviceName: device.name,
+            platform: device.platform,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.token && data.user) {
+            const serverUser: User = {
+              ...data.user,
+              passwordHash: '',
+              passwordSalt: '',
+            };
+
+            // Store token, user, and businessId in localStorage for persistent remote monitoring
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('ebs_session_token', data.token);
+              localStorage.setItem('ebs_user', JSON.stringify(serverUser));
+              if (serverUser.businessId) {
+                localStorage.setItem('ebs_business_id', serverUser.businessId);
+              }
+              if (data.business) {
+                const currentSaved = localStorage.getItem(`${STORAGE_KEY}_profile`);
+                const existingProf = currentSaved ? JSON.parse(currentSaved) : {};
+                const mergedProfile = { ...existingProf, ...data.business };
+                localStorage.setItem(`${STORAGE_KEY}_profile`, JSON.stringify(mergedProfile));
+              }
+            }
+
+            // Sync business profile if returned
+            if (data.business) {
+              setProfile((prev) => ({
+                ...prev,
+                id: data.business.id || prev.id,
+                name: data.business.name || prev.name,
+                currency: data.business.currency || prev.currency,
+              }));
+            }
+
+            // Merge into users list
+            setUsers((prev) => {
+              const existingIdx = prev.findIndex(
+                (u) => u.id === serverUser.id || (u.username && serverUser.username && u.username.toLowerCase() === serverUser.username.toLowerCase())
+              );
+              if (existingIdx >= 0) {
+                const copy = [...prev];
+                copy[existingIdx] = { ...copy[existingIdx], ...serverUser };
+                return copy;
+              }
+              return [...prev, serverUser];
+            });
+
+            setCurrentUser(serverUser);
+
+            const isMustChange = Boolean(data.mustChangePassword || serverUser.mustChangePassword);
+
+            if (isMustChange) {
+              setIsAuthenticated(false);
+              setIsLocked(false);
+              logAction('LOGIN_TEMP_PASSWORD', `Mtumiaji ${serverUser.name || 'Mtumiaji'} ameingia kwa neno la muda na anaelekezwa kuweka neno jipya la siri`, 'auth', serverUser.id);
+              return {
+                success: true,
+                user: serverUser,
+                mustChangePassword: true,
+              };
+            }
+
+            setIsAuthenticated(true);
+            setIsLocked(false);
+
+            // Apply user preferences if available
+            if (serverUser.preferences?.themeMode) setThemeModeState(serverUser.preferences.themeMode);
+            if (serverUser.preferences?.primaryColor) setPrimaryColorState(serverUser.preferences.primaryColor);
+            if (serverUser.preferences?.fontSize) setFontSizeState(serverUser.preferences.fontSize);
+            if (serverUser.preferences?.backgroundStyle) setBackgroundStyleState(serverUser.preferences.backgroundStyle);
+            if (serverUser.preferences?.language) setLanguageState(serverUser.preferences.language);
+
+            // Create active session
+            const newSession: UserSession = {
+              id: `sess-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+              userId: serverUser.id,
+              userName: serverUser.name || serverUser.username || 'Mtumiaji',
+              userRole: serverUser.role,
+              deviceId: device.id,
+              deviceName: device.name,
+              businessId: serverUser.businessId,
+              token: data.token,
+              deviceInfo: `${device.name} (${device.platform})`,
+              loginTime: new Date().toISOString(),
+              lastActivity: new Date().toISOString(),
+              ipAddress: '127.0.0.1 (Web/Remote)',
+              status: 'active',
+              isCurrent: true,
+            };
+
+            setActiveSession(newSession);
+            setSessions((prev) => [newSession, ...prev.slice(0, 19)]);
+
+            logAction('LOGIN_SUCCESS', `Mtumiaji ${serverUser.name || 'Mtumiaji'} (${serverUser.role || 'user'}) ameingia kwenye mfumo kupitia seva`, 'auth', serverUser.id);
+
+            return {
+              success: true,
+              user: serverUser,
+              mustChangePassword: false,
+            };
+          }
+        } else {
+          // Explicit server rejection (401 invalid credentials, 403 inactive or revoked device, 429 lockout)
+          // Must NOT bypass server authentication for remote accounts (Requirement 4)
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error || (res.status === 401 ? 'Jina la mtumiaji au neno la siri si sahihi.' : 'Hitilafu ya kuingia kwenye mfumo.');
+          logAction('LOGIN_FAILED', `Kuingia kumekataliwa na seva kwa: ${usernameOrPhone} (${res.status} - ${errMsg})`, 'auth');
+          return {
+            success: false,
+            message: errMsg,
+          };
+        }
+      } catch (networkErr: any) {
+        console.warn('[AppContext - loginUser] Seva haipatikani kwa sasa, inatumia mfumo wa nje ya mtandao (Offline POS fallback):', networkErr?.message || networkErr);
+      }
+    }
+
+    // 2. Offline POS Fallback: Authenticate against local cached users (Requirement 5)
     const targetUser = users.find((u) => {
       const matchUsername = u.username.toLowerCase() === cleanIdentifier;
       const matchPhone = cleanPhone.length > 5 && u.phone.replace(/\D/g, '').includes(cleanPhone);
@@ -944,7 +1607,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: 'Neno la siri (Password) si sahihi.' };
     }
 
-    // Success login
+    // Success offline login
     const updatedUser: User = {
       ...targetUser,
       lastLogin: new Date().toISOString(),
@@ -955,8 +1618,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUsers((prev) => prev.map((u) => (u.id === targetUser.id ? updatedUser : u)));
     setCurrentUser(updatedUser);
 
-    // If user must change password (e.g. first login with temporary password),
-    // keep isAuthenticated=false so user is forced to create a new personal password and PIN before gaining full system access
     if (updatedUser.mustChangePassword) {
       setIsAuthenticated(false);
       setIsLocked(false);
@@ -971,30 +1632,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsAuthenticated(true);
     setIsLocked(false);
 
-    // Apply user preferences if available
     if (updatedUser.preferences?.themeMode) setThemeModeState(updatedUser.preferences.themeMode);
     if (updatedUser.preferences?.primaryColor) setPrimaryColorState(updatedUser.preferences.primaryColor);
     if (updatedUser.preferences?.fontSize) setFontSizeState(updatedUser.preferences.fontSize);
     if (updatedUser.preferences?.backgroundStyle) setBackgroundStyleState(updatedUser.preferences.backgroundStyle);
     if (updatedUser.preferences?.language) setLanguageState(updatedUser.preferences.language);
 
-    // Create / Update Session
     const newSession: UserSession = {
       id: `sess-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       userId: updatedUser.id,
       userName: updatedUser?.name || updatedUser?.username || 'Mtumiaji',
       userRole: updatedUser.role,
-      deviceInfo: navigator.userAgent.includes('Mobile') ? 'Mobile Terminal' : 'Desktop / POS Register',
+      deviceId: device.id,
+      deviceName: device.name,
+      businessId: updatedUser.businessId,
+      deviceInfo: `${device.name} (${device.platform})`,
       loginTime: new Date().toISOString(),
       lastActivity: new Date().toISOString(),
-      ipAddress: '127.0.0.1 (Local)',
+      ipAddress: '127.0.0.1 (Offline POS)',
       status: 'active'
     };
 
     setActiveSession(newSession);
-    setSessions((prev) => [newSession, ...prev.slice(0, 19)]); // keep last 20
+    setSessions((prev) => [newSession, ...prev.slice(0, 19)]);
 
-    logAction('LOGIN_SUCCESS', `Mtumiaji ${targetUser?.name || 'Mtumiaji'} (${targetUser?.role || 'user'}) ameingia kwenye mfumo`, 'auth', targetUser?.id);
+    logAction('LOGIN_SUCCESS', `Mtumiaji ${targetUser?.name || 'Mtumiaji'} (${targetUser?.role || 'user'}) ameingia kwenye mfumo (Offline)`, 'auth', targetUser?.id);
 
     return {
       success: true,
@@ -1012,6 +1674,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveSession(null);
     setIsAuthenticated(false);
     setIsLocked(false);
+    try {
+      localStorage.removeItem('ebs_session_token');
+    } catch {}
     logAction('LOGOUT', `Mtumiaji ${currentUser?.name || 'Mtumiaji'} ametoka kwenye mfumo`, 'auth', currentUser?.id);
   }, [currentUser, activeSession, logAction]);
 
@@ -1143,18 +1808,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUsers((prev) => prev.map((u) => (u.id === userId ? updated : u)));
     logAction('USER_PASSWORD_RESET', `Neno la siri la muda limewekwa kwa ${targetUser?.name || 'Mtumiaji'} na ${currentUser?.name || 'Admin'}`, 'user', userId);
 
+    // Remote Password Reset (EBS VISION 1.3 - STEP 4 PHASE 2B)
+    try {
+      const activeBizId = getActiveBusinessId();
+      const deviceId = getLocalDeviceIdentity()?.id || 'DEV-WEB-DEFAULT';
+      const token = typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined;
+      if (isSystemOnline() && !isSimulatedOffline() && activeBizId) {
+        const baseUrl = getApiBaseUrl();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'x-business-id': activeBizId,
+          'x-device-id': deviceId
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        if (currentUser?.id) headers['x-user-id'] = currentUser.id;
+        if (currentUser?.role) headers['x-user-role'] = currentUser.role;
+
+        await fetch(`${baseUrl}/api/users/${userId}/reset-password`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ customNewPassword: tempPass })
+        });
+      }
+    } catch (err) {
+      console.warn('[Remote User] Failed to reset password on server:', err);
+    }
+
     return {
       success: true,
       message: `Neno jipya la siri limewekwa: ${tempPass}`,
       temporaryPassword: tempPass,
     };
-  }, [canAccess, currentUser, users, logAction]);
+  }, [canAccess, currentUser, users, logAction, getActiveBusinessId]);
 
-  const updateUserPermissions = useCallback((userId: string, granularOverrides: Partial<GranularPermissions>) => {
+  const updateUserPermissions = useCallback(async (userId: string, granularOverrides: Partial<GranularPermissions>) => {
+    let updatedGranular: Partial<GranularPermissions> = {};
     setUsers((prev) =>
       prev.map((u) => {
         if (u.id === userId) {
-          const updatedGranular = {
+          updatedGranular = {
             ...(u.granularPermissions || {}),
             ...granularOverrides,
           };
@@ -1164,7 +1856,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
     logAction('PERMISSIONS_UPDATED', `Ruhusa za kipekee zimesasishwa kwa mtumiaji ID: ${userId}`, 'user', userId);
-  }, [logAction]);
+
+    // Remote Permissions Update (EBS VISION 1.3 - STEP 4 PHASE 2B)
+    try {
+      const activeBizId = getActiveBusinessId();
+      const deviceId = getLocalDeviceIdentity()?.id || 'DEV-WEB-DEFAULT';
+      const token = typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined;
+      if (isSystemOnline() && !isSimulatedOffline() && activeBizId) {
+        const baseUrl = getApiBaseUrl();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'x-business-id': activeBizId,
+          'x-device-id': deviceId
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        if (currentUser?.id) headers['x-user-id'] = currentUser.id;
+        if (currentUser?.role) headers['x-user-role'] = currentUser.role;
+
+        await fetch(`${baseUrl}/api/users/${userId}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ granularPermissions: updatedGranular })
+        });
+      }
+    } catch (err) {
+      console.warn('[Remote User] Failed to update permissions on server:', err);
+    }
+  }, [currentUser?.id, currentUser?.role, getActiveBusinessId, logAction]);
 
   // Business Owner / Manager Approval Verification
   const verifyManagerApproval = useCallback(async (
@@ -1202,8 +1920,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const passHash = await hashPassword(cleanPass);
     const safeName = userData?.name || userData?.username || 'Mtumiaji';
     const generatedUsername = (userData?.username || safeName.toLowerCase().replace(/[^a-z0-9]/gi, '')).toLowerCase().trim();
+    const activeBizId = getActiveBusinessId();
     const newUser: User = {
       name: safeName,
+      businessId: activeBizId,
       phone: userData.phone,
       role: userData.role,
       pin: userData.pin || '1234',
@@ -1239,20 +1959,98 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         canManageTables: true,
         canAccessBarMode: true,
       },
+      syncStatus: 'pending'
     };
 
-    setUsers((prev) => [...prev, newUser]);
+    setUsers((prev) => deduplicateUsers([...prev, newUser]));
     logAction('USER_CREATED', `Mtumiaji mpya ${newUser?.name || 'Mtumiaji'} (${newUser?.role || 'staff'}) ameongezwa`, 'user', newUser?.id);
-    return newUser;
-  }, [logAction]);
 
-  const updateUser = useCallback((id: string, updates: Partial<User>) => {
+    // Remote Create User on Server (EBS VISION 1.3 - STEP 4 PHASE 2B)
+    try {
+      const deviceId = getLocalDeviceIdentity()?.id || 'DEV-WEB-DEFAULT';
+      const token = typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined;
+      if (isSystemOnline() && !isSimulatedOffline() && activeBizId) {
+        const baseUrl = getApiBaseUrl();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'x-business-id': activeBizId,
+          'x-device-id': deviceId
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        if (currentUser?.id) headers['x-user-id'] = currentUser.id;
+        if (currentUser?.role) headers['x-user-role'] = currentUser.role;
+
+        const res = await fetch(`${baseUrl}/api/users`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            id: newUser.id,
+            name: newUser.name,
+            username: newUser.username,
+            phone: newUser.phone,
+            role: newUser.role,
+            password: cleanPass,
+            active: newUser.active,
+            permissions: newUser.permissions,
+            canDiscount: newUser.canDiscount,
+            canRefund: newUser.canRefund,
+            canAdjustStock: newUser.canAdjustStock,
+            canViewProfit: newUser.canViewProfit,
+            canManageUsers: newUser.canManageUsers
+          })
+        });
+
+        if (res.ok) {
+          newUser.syncStatus = 'synced';
+          setUsers((prev) => prev.map((u) => (u.id === newUser.id ? { ...u, syncStatus: 'synced' } : u)));
+        } else {
+          console.warn('[Remote User] Server rejected user creation:', res.status);
+          newUser.syncStatus = 'failed';
+          setUsers((prev) => prev.map((u) => (u.id === newUser.id ? { ...u, syncStatus: 'failed' } : u)));
+        }
+      }
+    } catch (err) {
+      console.warn('[Remote User] Network failure on server user create:', err);
+      newUser.syncStatus = 'failed';
+      setUsers((prev) => prev.map((u) => (u.id === newUser.id ? { ...u, syncStatus: 'failed' } : u)));
+    }
+
+    return newUser;
+  }, [getActiveBusinessId, currentUser?.id, currentUser?.role, logAction]);
+
+  const updateUser = useCallback(async (id: string, updates: Partial<User>) => {
     setUsers((prev) => prev.map((u) => (u?.id === id ? { ...u, ...updates } : u)));
     if (currentUser?.id === id) {
       setCurrentUser((prev) => ({ ...prev, ...updates }));
     }
     logAction('USER_UPDATED', `Mtumiaji aliyesasishwa: ID ${id}`, 'user', id);
-  }, [currentUser?.id, logAction]);
+
+    // Remote Update User on Server (EBS VISION 1.3 - STEP 4 PHASE 2B)
+    try {
+      const activeBizId = getActiveBusinessId();
+      const deviceId = getLocalDeviceIdentity()?.id || 'DEV-WEB-DEFAULT';
+      const token = typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined;
+      if (isSystemOnline() && !isSimulatedOffline() && activeBizId) {
+        const baseUrl = getApiBaseUrl();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'x-business-id': activeBizId,
+          'x-device-id': deviceId
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        if (currentUser?.id) headers['x-user-id'] = currentUser.id;
+        if (currentUser?.role) headers['x-user-role'] = currentUser.role;
+
+        await fetch(`${baseUrl}/api/users/${id}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(updates)
+        });
+      }
+    } catch (err) {
+      console.warn('[Remote User] Failed to update user on server:', err);
+    }
+  }, [currentUser?.id, currentUser?.role, getActiveBusinessId, logAction]);
 
   const deleteUser = useCallback((id: string) => {
     if (currentUser?.id === id) {
@@ -1263,21 +2061,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAction('USER_DELETED', `Mtumiaji amefutwa: ID ${id}`, 'user', id);
   }, [currentUser?.id, logAction]);
 
-  const toggleUserActive = useCallback((id: string) => {
+  const toggleUserActive = useCallback(async (id: string) => {
+    let nextActive = false;
     setUsers((prev) =>
       prev.map((u) => {
         if (u.id === id) {
-          const nextActive = !u.active;
+          nextActive = !u.active;
           logAction('USER_STATUS_TOGGLE', `Mtumiaji ${u?.name || 'Mtumiaji'} ${nextActive ? 'Amefunguliwa' : 'Amefungwa'}`, 'user', id);
           return { ...u, active: nextActive };
         }
         return u;
       })
     );
-  }, [logAction]);
+
+    // Remote Activate/Deactivate User on Server (EBS VISION 1.3 - STEP 4 PHASE 2B)
+    try {
+      const activeBizId = getActiveBusinessId();
+      const deviceId = getLocalDeviceIdentity()?.id || 'DEV-WEB-DEFAULT';
+      const token = typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined;
+      if (isSystemOnline() && !isSimulatedOffline() && activeBizId) {
+        const baseUrl = getApiBaseUrl();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'x-business-id': activeBizId,
+          'x-device-id': deviceId
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        if (currentUser?.id) headers['x-user-id'] = currentUser.id;
+        if (currentUser?.role) headers['x-user-role'] = currentUser.role;
+
+        await fetch(`${baseUrl}/api/users/${id}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ active: nextActive })
+        });
+      }
+    } catch (err) {
+      console.warn('[Remote User] Failed to update user active status on server:', err);
+    }
+  }, [currentUser?.id, currentUser?.role, getActiveBusinessId, logAction]);
 
   // Products
   const addProduct = useCallback((productData: Omit<Product, 'id'>): Product => {
+    if (!canUserCreateProduct(currentUser)) {
+      logAction('UNAUTHORIZED_ATTEMPT', `Jaribio la kuongeza bidhaa bila idhini: ${productData?.name || 'Bidhaa'}`, 'product', currentUser?.id);
+      throw new Error('Huna idhini ya kusajili bidhaa mpya (Permission Denied). Wasiliana na Mmiliki au Meneja.');
+    }
+
     const newProd: Product = {
       ...productData,
       id: `prod-${Date.now()}`,
@@ -1285,26 +2115,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setProducts((prev) => [newProd, ...prev]);
     logAction('PRODUCT_ADDED', `Bidhaa mpya: ${newProd?.name || 'Bidhaa'} (Bei: ${newProd?.sellingPrice || 0})`, 'product', newProd?.id);
     return newProd;
-  }, [logAction]);
+  }, [currentUser, logAction]);
 
   const updateProduct = useCallback((id: string, updates: Partial<Product>) => {
+    if (!canUserEditProduct(currentUser)) {
+      logAction('UNAUTHORIZED_ATTEMPT', `Jaribio la kuhariri bidhaa bila idhini: ID ${id}`, 'product', currentUser?.id);
+      console.warn('[RBAC Security] Unauthorized attempt to update product ID:', id);
+      return;
+    }
+
     setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
     logAction('PRODUCT_UPDATED', `Bidhaa iliyorekebishwa: ID ${id}`, 'product', id);
-  }, [logAction]);
+  }, [currentUser, logAction]);
 
   const deleteProduct = useCallback((id: string) => {
+    if (!canUserDeleteProduct(currentUser)) {
+      logAction('UNAUTHORIZED_ATTEMPT', `Jaribio la kufuta/kuzima bidhaa bila idhini: ID ${id}`, 'product', currentUser?.id);
+      console.warn('[RBAC Security] Unauthorized attempt to archive product ID:', id);
+      return;
+    }
+
     const target = products.find((p) => p.id === id);
     setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, active: false } : p)));
     logAction('PRODUCT_ARCHIVED', `Bidhaa imehifadhiwa/kuzimwa kwenye mfumo: ${target?.name || id}`, 'product', id);
-  }, [products, logAction]);
+  }, [currentUser, products, logAction]);
 
   const restoreProduct = useCallback((id: string) => {
+    if (!canUserEditProduct(currentUser) && !canUserDeleteProduct(currentUser)) {
+      logAction('UNAUTHORIZED_ATTEMPT', `Jaribio la kurejesha bidhaa bila idhini: ID ${id}`, 'product', currentUser?.id);
+      console.warn('[RBAC Security] Unauthorized attempt to restore product ID:', id);
+      return;
+    }
+
     const target = products.find((p) => p.id === id);
     setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, active: true } : p)));
     logAction('PRODUCT_RESTORED', `Bidhaa imerejeshwa kutumika: ${target?.name || id}`, 'product', id);
-  }, [products, logAction]);
+  }, [currentUser, products, logAction]);
 
   const hardDeleteProduct = useCallback((id: string): { success: boolean; message: string } => {
+    if (!canUserDeleteProduct(currentUser)) {
+      logAction('UNAUTHORIZED_ATTEMPT', `Jaribio la kufuta kabisa bidhaa bila idhini: ID ${id}`, 'product', currentUser?.id);
+      return {
+        success: false,
+        message: 'Huna idhini ya kufuta bidhaa kwenye mfumo (Permission Denied).'
+      };
+    }
+
     const target = products.find((p) => p.id === id);
     const hasSalesHistory = sales.some((s) => s.items.some((i) => i.productId === id));
     
@@ -1324,7 +2180,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       success: true,
       message: `Bidhaa ya "${target?.name || 'Hii'}" imefutwa kabisa kwenye mfumo.`
     };
-  }, [products, sales, logAction]);
+  }, [currentUser, products, sales, logAction]);
 
   const adjustStock = useCallback((
     productId: string,
@@ -1334,6 +2190,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     note?: string,
     varianceMl?: number
   ) => {
+    if (!canUserAdjustStock(currentUser)) {
+      logAction('UNAUTHORIZED_ATTEMPT', `Jaribio la kurekebisha stoo bila idhini kwa bidhaa ID ${productId}`, 'stock', currentUser?.id);
+      console.warn('[RBAC Security] Unauthorized attempt to adjust stock for product ID:', productId);
+      return;
+    }
+
     const product = products.find((p) => p.id === productId);
     if (!product) return;
 
@@ -1366,7 +2228,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Queue in Offline-First Sync Engine
     const device = getLocalDeviceIdentity();
-    const bizId = (profile as any)?.id || '00000000-0000-4000-8000-000000000001';
+    const bizId = getActiveBusinessId() || (profile as any)?.id || 'EBS-BIZ-000001';
     const deviceId = device?.id || 'DEV-LOCAL-001';
     const deviceName = device?.name || 'Local POS Terminal';
     enqueueOfflineTransaction(bizId, {
@@ -1392,7 +2254,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!isSimulatedOffline()) {
       pushSyncQueueToServer(bizId, deviceId).catch(() => {});
     }
-  }, [products, profile, currentUser, logAction]);
+  }, [currentUser, products, profile, getActiveBusinessId, logAction]);
 
   // Sales & POS
   const completeSale = useCallback((
@@ -1428,6 +2290,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saleId = `sale-${Date.now()}`;
     const timestamp = new Date().toISOString();
 
+    const device = getLocalDeviceIdentity();
+    const bizId = getActiveBusinessId() || (profile as any)?.id || 'EBS-BIZ-000001';
+    const deviceId = device?.id || 'DEV-LOCAL-001';
+    const deviceName = device?.name || 'Local POS Terminal';
+    const clientTxId = generateLocalTransactionId(deviceId);
+
     const isDebtSale = payments.some((p) => p.method === 'debt');
     const primaryMethod = payments[0]?.method || 'cash';
 
@@ -1438,6 +2306,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const newSale: Sale = {
       id: saleId,
+      businessId: bizId,
+      deviceId,
+      deviceName,
+      clientTransactionId: clientTxId,
+      syncStatus: 'pending',
       invoiceNo,
       items,
       subtotal,
@@ -1575,12 +2448,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAction('SALE_COMPLETED', `Risiti ${invoiceNo} ya TZS ${total.toLocaleString()} (${primaryMethod})`, 'sale', saleId);
 
     // Queue in Offline-First Sync Engine & push if connected
-    const device = getLocalDeviceIdentity();
-    const bizId = (profile as any)?.id || '00000000-0000-4000-8000-000000000001';
-    const deviceId = device?.id || 'DEV-LOCAL-001';
-    const deviceName = device?.name || 'Local POS Terminal';
     enqueueOfflineTransaction(bizId, {
-      localId: generateLocalTransactionId(deviceId),
+      localId: clientTxId,
       businessId: bizId,
       userId: currentUser?.id || 'usr-cashier',
       userName: currentUser?.name || 'Keshia',
@@ -1591,8 +2460,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       payload: newSale
     });
 
-    if (!isSimulatedOffline()) {
-      pushSyncQueueToServer(bizId, deviceId).catch(() => {});
+    if (!isSimulatedOffline() && isSystemOnline()) {
+      pushSyncQueueToServer(bizId, deviceId).then((pushRes) => {
+        if (pushRes.success && pushRes.results) {
+          const syncedIds = new Set(
+            pushRes.results.filter((r) => r.status === 'synced').map((r) => r.localId)
+          );
+          if (syncedIds.has(clientTxId)) {
+            setSales((prev) =>
+              prev.map((s) => (s.clientTransactionId === clientTxId ? { ...s, syncStatus: 'synced' } : s))
+            );
+          }
+        }
+      }).catch(() => {});
     }
 
     return newSale;
@@ -2085,6 +2965,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     startFreshBusiness,
 
     todayStats,
+
+    // Offline-First Sync Engine Status & Control (EBS Vision 1.3)
+    isSyncing,
+    lastSyncTime,
+    triggerManualSync: performBackgroundSync,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

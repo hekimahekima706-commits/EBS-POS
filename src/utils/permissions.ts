@@ -892,6 +892,8 @@ export function hasPermission(user: User | null | undefined, permissionKey: AnyP
     canViewDashboard: 'view_sales_report',
     canViewStock: 'view_stock',
     canManageStock: 'adjust_stock',
+    canAdjustStock: 'adjust_stock',
+    canManageProducts: 'create_product',
     canAccessBarMode: 'create_sale',
     canViewDebts: 'view_customer_debt',
     canManageCustomers: 'create_customer',
@@ -918,6 +920,20 @@ export function hasPermission(user: User | null | undefined, permissionKey: AnyP
     return !!user.granularPermissions[actualKey];
   }
 
+  // Check explicit legacy permissions object overrides before role defaults
+  if (
+    (actualKey === 'create_product' || actualKey === 'edit_product' || actualKey === 'deactivate_product') &&
+    user.permissions?.canManageProducts
+  ) {
+    return true;
+  }
+  if (
+    actualKey === 'adjust_stock' &&
+    (user.canAdjustStock || user.permissions?.canAdjustStock || user.permissions?.canManageStock)
+  ) {
+    return true;
+  }
+
   // Fallback to role defaults
   const roleDefaults = ROLE_DEFAULT_PERMISSIONS[user.role];
   if (roleDefaults && roleDefaults[actualKey] !== undefined) {
@@ -934,3 +950,66 @@ export function hasPermission(user: User | null | undefined, permissionKey: AnyP
 
   return false;
 }
+
+/**
+ * Checks if user is authorized to create new products.
+ * Owner/Boss/Admin/SuperAdmin retain authority.
+ * Cashier/Seller cannot create products unless explicitly granted via canManageProducts or granularPermissions.create_product.
+ */
+export function canUserCreateProduct(user: User | null | undefined): boolean {
+  if (!user || !user.active) return false;
+  if (['owner', 'boss', 'admin', 'super_admin'].includes(user.role)) return true;
+  if (user.granularPermissions?.create_product !== undefined) return Boolean(user.granularPermissions.create_product);
+  if (user.permissions?.canManageProducts) return true;
+  return hasPermission(user, 'create_product');
+}
+
+/**
+ * Checks if user is authorized to edit product details.
+ * Cashier/Seller cannot edit products unless explicitly granted.
+ */
+export function canUserEditProduct(user: User | null | undefined): boolean {
+  if (!user || !user.active) return false;
+  if (['owner', 'boss', 'admin', 'super_admin'].includes(user.role)) return true;
+  if (user.granularPermissions?.edit_product !== undefined) return Boolean(user.granularPermissions.edit_product);
+  if (user.permissions?.canManageProducts) return true;
+  return hasPermission(user, 'edit_product');
+}
+
+/**
+ * Checks if user is authorized to archive or delete products.
+ * Cashier/Seller cannot archive/delete products unless explicitly granted.
+ */
+export function canUserDeleteProduct(user: User | null | undefined): boolean {
+  if (!user || !user.active) return false;
+  if (['owner', 'boss', 'admin', 'super_admin'].includes(user.role)) return true;
+  if (user.granularPermissions?.deactivate_product !== undefined) return Boolean(user.granularPermissions.deactivate_product);
+  if (user.permissions?.canManageProducts) return true;
+  return hasPermission(user, 'deactivate_product');
+}
+
+/**
+ * Checks if user is authorized to perform direct/manual stock adjustments.
+ * Note: standard POS sale stock deduction is part of completeSale/canMakeSales and remains intact.
+ * Cashier/Seller cannot directly adjust stock unless explicitly granted.
+ */
+export function canUserAdjustStock(user: User | null | undefined): boolean {
+  if (!user || !user.active) return false;
+  if (['owner', 'boss', 'admin', 'super_admin'].includes(user.role)) return true;
+  if (user.canAdjustStock !== undefined) return Boolean(user.canAdjustStock);
+  if (user.granularPermissions?.adjust_stock !== undefined) return Boolean(user.granularPermissions.adjust_stock);
+  if (user.permissions?.canAdjustStock !== undefined) return Boolean(user.permissions.canAdjustStock);
+  if (user.permissions?.canManageStock !== undefined) return Boolean(user.permissions.canManageStock);
+  return hasPermission(user, 'adjust_stock');
+}
+
+/**
+ * General helper for product catalog management.
+ */
+export function canUserManageProducts(user: User | null | undefined): boolean {
+  if (!user || !user.active) return false;
+  if (['owner', 'boss', 'admin', 'super_admin'].includes(user.role)) return true;
+  if (user.permissions?.canManageProducts) return true;
+  return canUserCreateProduct(user) || canUserEditProduct(user) || canUserDeleteProduct(user);
+}
+

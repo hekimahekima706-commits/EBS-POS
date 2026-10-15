@@ -38,6 +38,7 @@ export const PROFILES_TABLE = 'profiles' as const;
 export const BUSINESSES_TABLE = 'businesses' as const;
 export const PRODUCTS_TABLE = 'products' as const;
 export const SALES_TABLE = 'sales' as const;
+export const REGISTERED_DEVICES_TABLE = 'registered_devices' as const;
 
 export const supabaseClient: SupabaseClient<any, 'public', any> | null = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {

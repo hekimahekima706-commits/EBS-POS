@@ -33,7 +33,8 @@ import {
   setSimulatedOffline,
   getOfflineQueue,
   pushSyncQueueToServer,
-  pullDeltaFromServer
+  pullDeltaFromServer,
+  getApiBaseUrl
 } from '../utils/syncEngine';
 
 interface DevicesViewProps {
@@ -72,19 +73,31 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
   const [editDeviceName, setEditDeviceName] = useState('');
   const [editDevicePlatform, setEditDevicePlatform] = useState<DevicePlatform>('android');
 
-  const businessId = (profile as any).id || '00000000-0000-4000-8000-000000000001';
+  // Authenticated Business ID Resolution (STEP 3 - Task 1)
+  const resolvedBizId =
+    currentUser?.businessId ||
+    (profile as any)?.businessId ||
+    (profile as any)?.id ||
+    (typeof window !== 'undefined' ? localStorage.getItem('ebs_business_id') || '' : '');
+  const businessId = resolvedBizId && resolvedBizId !== 'biz_default' && resolvedBizId !== 'Local' && resolvedBizId !== '00000000-0000-4000-8000-000000000001'
+    ? resolvedBizId
+    : 'EBS-BIZ-466594';
 
   // Load devices from server
   const fetchDevices = async () => {
     try {
       setLoading(true);
-      const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
-      const res = await fetch(`${baseUrl}/api/devices`, {
-        headers: {
-          'x-business-id': businessId,
-          'x-device-id': currentDevice?.id || 'DEV-DEFAULT'
-        }
-      });
+      const baseUrl = getApiBaseUrl();
+      const token = typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined;
+      const headers: Record<string, string> = {
+        'x-business-id': businessId,
+        'x-device-id': currentDevice?.id || 'DEV-DEFAULT'
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (currentUser?.role) headers['x-user-role'] = currentUser.role;
+      if (currentUser?.id) headers['x-user-id'] = currentUser.id;
+
+      const res = await fetch(`${baseUrl}/api/devices`, { headers });
       if (res.ok) {
         const data = await res.json();
         setDevices(data);
@@ -150,12 +163,19 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
     }
 
     try {
-      const res = await fetch(`/api/devices/${device.id}/revoke`, {
+      const baseUrl = getApiBaseUrl();
+      const token = typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined;
+      const headers: Record<string, string> = {
+        'x-business-id': businessId,
+        'x-device-id': currentDevice.id
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (currentUser?.role) headers['x-user-role'] = currentUser.role;
+      if (currentUser?.id) headers['x-user-id'] = currentUser.id;
+
+      const res = await fetch(`${baseUrl}/api/devices/${device.id}/revoke`, {
         method: 'POST',
-        headers: {
-          'x-business-id': businessId,
-          'x-device-id': currentDevice.id
-        }
+        headers
       });
       if (res.ok) {
         logAction('DEVICE_REVOKED', `Idhini ya kifaa ${device?.name || 'Kifaa'} (${device?.id}) imefutwa`, 'device', device?.id);
@@ -185,14 +205,20 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
     const assignedUserObj = users.find(u => u.id === newDeviceAssignedUser);
 
     try {
-      const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+      const baseUrl = getApiBaseUrl();
+      const token = typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-business-id': businessId,
+        'x-device-id': currentDevice.id
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (currentUser?.role) headers['x-user-role'] = currentUser.role;
+      if (currentUser?.id) headers['x-user-id'] = currentUser.id;
+
       const res = await fetch(`${baseUrl}/api/devices/register`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-business-id': businessId,
-          'x-device-id': currentDevice.id
-        },
+        headers,
         body: JSON.stringify({
           name: newDeviceName,
           platform: newDevicePlatform,
@@ -219,13 +245,20 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
     if (!selectedDevice || !editDeviceName.trim()) return;
 
     try {
-      const res = await fetch(`/api/devices/${selectedDevice.id}/update`, {
+      const baseUrl = getApiBaseUrl();
+      const token = typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-business-id': businessId,
+        'x-device-id': currentDevice.id
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (currentUser?.role) headers['x-user-role'] = currentUser.role;
+      if (currentUser?.id) headers['x-user-id'] = currentUser.id;
+
+      const res = await fetch(`${baseUrl}/api/devices/${selectedDevice.id}/update`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-business-id': businessId,
-          'x-device-id': currentDevice.id
-        },
+        headers,
         body: JSON.stringify({
           name: editDeviceName,
           platform: editDevicePlatform
@@ -704,8 +737,8 @@ export const DevicesView: React.FC<DevicesViewProps> = ({ onNavigate }) => {
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs"
                 >
                   <option value="">-- Hakuna (Kifaa cha Pamoja) --</option>
-                  {users.map(u => (
-                    <option key={u.id} value={u.id}>
+                  {users.map((u, idx) => (
+                    <option key={`dev-user-${u?.id || idx}-${idx}`} value={u.id}>
                       {u?.name || u?.username || 'Mtumiaji'} ({u?.role ? u.role.toUpperCase() : 'STAFF'})
                     </option>
                   ))}

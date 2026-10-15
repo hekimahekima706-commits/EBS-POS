@@ -218,7 +218,7 @@ const MainAppContent: React.FC = () => {
           {currentView === 'employees' && (can('canManageUsers') || can('canViewAuditLogs')) && <EmployeesView />}
           {currentView === 'camera' && can('canViewCCTV') && <CameraView />}
           {currentView === 'calendar' && <GoogleCalendarView />}
-          {(currentView === 'ai_assistant' || currentView === 'ai') && <AiAssistantView />}
+          {(currentView === 'ai_assistant' || currentView === 'ai') && <AiAssistantView onNavigate={setCurrentView} />}
           {currentView === 'devices' && <DevicesView onNavigate={setCurrentView} />}
           {currentView === 'settings' && (can('canManageSettings') || can('canBackupRestore')) && <SettingsView />}
         </main>

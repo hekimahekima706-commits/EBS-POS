@@ -884,8 +884,8 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
                     className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 text-xs font-bold truncate"
                   >
                     <option value="">-- Hakuna Mhudumu --</option>
-                    {users.filter((u) => u.active).map((u) => (
-                      <option key={u.id} value={u.id}>
+                    {users.filter((u) => u.active).map((u, idx) => (
+                      <option key={`pos-waiter-${u?.id || idx}-${idx}`} value={u.id}>
                         {u?.name || u?.username || 'Mtumiaji'} ({u?.role || ''})
                       </option>
                     ))}
@@ -1784,6 +1784,18 @@ export const PosView: React.FC<PosViewProps> = ({ onSelectSale, onPrintReceipt }
           setCartItems((prev) => [...prev, item]);
         }}
       />
+
+      {/* FLOATING ACTION BUTTON FOR VOICE POS ('🎤') */}
+      <button
+        id="btn-pos-floating-mic"
+        onClick={() => setShowVoiceModal(true)}
+        aria-label="Uza kwa Sauti (Voice POS)"
+        title="Uza kwa Sauti: Sema 'EBS niuzie Kilimanjaro mbili...'"
+        className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-gradient-to-tr from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-xl shadow-purple-900/40 border-2 border-purple-400/40 flex items-center justify-center transition-all duration-200 transform hover:scale-105 active:scale-95 group"
+      >
+        <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-400 rounded-full animate-ping" />
+        <span className="text-2xl group-hover:scale-110 transition-transform">🎤</span>
+      </button>
     </div>
   );
 };

@@ -24,6 +24,12 @@ export const ExpensesView: React.FC = () => {
 
   const totalAllExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
 
+  // Privileges: Owner and Boss can ALWAYS view profit (unhide blur)
+  // Hide profit margins ONLY for Cashier, Waiter, and Storekeeper
+  const isOwnerOrBoss = currentUser?.role === 'owner' || currentUser?.role === 'boss' || currentUser?.role === 'super_admin' || currentUser?.role === 'admin';
+  const isRestrictedRole = currentUser?.role === 'cashier' || currentUser?.role === 'waiter' || currentUser?.role === 'storekeeper';
+  const canSeeProfit = isOwnerOrBoss ? true : isRestrictedRole ? false : Boolean(currentUser?.canViewProfit);
+
   const handleSaveExpense = (e: React.FormEvent) => {
     e.preventDefault();
     const numAmount = parseFloat(amount) || 0;
@@ -89,7 +95,7 @@ export const ExpensesView: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
           <div className="text-xs text-slate-500 font-semibold">Faida Halisi ya Leo (Net Profit)</div>
           <div className="text-xl font-black text-emerald-600 mt-1">
-            {currentUser?.canViewProfit ? formatTZS(todayStats.netProfit) : '••••••'}
+            {canSeeProfit ? formatTZS(todayStats.netProfit) : '••••••'}
           </div>
           <div className="text-[11px] text-slate-400 mt-0.5">Baada ya kutoa gharama za leo</div>
         </div>

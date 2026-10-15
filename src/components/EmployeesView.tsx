@@ -12,13 +12,17 @@ import {
   X,
   Lock,
   Eye,
-  KeyRound
+  KeyRound,
+  BarChart3,
+  TrendingUp,
+  ArrowUpRight
 } from 'lucide-react';
+import { StaffPerformanceVisualizer } from './StaffPerformanceVisualizer';
 
 export const EmployeesView: React.FC = () => {
   const { users, addUser, updateUser, auditLogs, currentUser, resetUserPassword } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'employees' | 'audit'>('employees');
+  const [activeTab, setActiveTab] = useState<'employees' | 'performance' | 'audit'>('employees');
 
   // Add Employee Modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -137,10 +141,10 @@ export const EmployeesView: React.FC = () => {
         </div>
 
         <div className="flex items-center space-x-2">
-          <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+          <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl overflow-x-auto max-w-full">
             <button
               onClick={() => setActiveTab('employees')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 ${
                 activeTab === 'employees'
                   ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-xs'
                   : 'text-slate-600 dark:text-slate-300'
@@ -149,8 +153,19 @@ export const EmployeesView: React.FC = () => {
               👨‍💼 Wafanyakazi ({users.length})
             </button>
             <button
+              onClick={() => setActiveTab('performance')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'performance'
+                  ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Ufanisi wa Mauzo (Sales Performance)</span>
+            </button>
+            <button
               onClick={() => setActiveTab('audit')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 ${
                 activeTab === 'audit'
                   ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-xs'
                   : 'text-slate-600 dark:text-slate-300'
@@ -170,16 +185,47 @@ export const EmployeesView: React.FC = () => {
         </div>
       </div>
 
-      {activeTab === 'employees' ? (
+      {activeTab === 'performance' ? (
+        <StaffPerformanceVisualizer />
+      ) : activeTab === 'employees' ? (
         <div className="space-y-4">
+          {/* Quick Staff Performance Highlight Banner */}
+          <div className="bg-gradient-to-r from-emerald-500/10 via-sky-500/10 to-indigo-500/10 dark:from-emerald-950/40 dark:via-sky-950/30 dark:to-indigo-950/30 border border-emerald-500/20 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <span>Ufuatiliaji wa Tija na Mauzo ya Wafanyakazi (Sales & Productivity)</span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 rounded">
+                    Recharts
+                  </span>
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Tazama chati za kulinganisha mapato na kiasi cha bidhaa zilizouzwa kwa kila keshia au mhudumu
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab('performance')}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-xs shrink-0 active:scale-95"
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Fungua Chati za Ufanisi</span>
+              <ArrowUpRight className="w-3 h-3" />
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {users.map((u) => {
+            {users.map((u, idx) => {
               const roleInfo = ROLE_INFO[u?.role] || { label: u?.role || 'Staff', badgeColor: 'bg-slate-800 text-slate-300', description: '' };
               const isCurrentUser = u?.id && currentUser?.id ? u.id === currentUser.id : false;
 
               return (
                 <div
-                  key={u?.id || Math.random()}
+                  key={`emp-card-${u?.id || idx}-${idx}`}
                   className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between space-y-4"
                 >
                   <div>

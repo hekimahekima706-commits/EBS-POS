@@ -32,14 +32,17 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale, currentView, onNavigate }) => {
-  const { profile, setBusinessMode, currentUser, setCurrentUser, users, cameraEvents, products, lockSession, logoutUser } = useApp();
-  const [showModeDropdown, setShowModeDropdown] = useState(false);
+  const { profile, currentUser, setCurrentUser, users, cameraEvents, products, lockSession, logoutUser } = useApp();
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [showNotificationMenu, setShowNotificationMenu] = useState(false);
   const [showNetworkInfo, setShowNetworkInfo] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
+
+  const userMenuRef = React.useRef<HTMLDivElement>(null);
+  const networkMenuRef = React.useRef<HTMLDivElement>(null);
+  const notificationMenuRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -48,9 +51,27 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (userMenuRef.current && !userMenuRef.current.contains(target)) {
+        setShowUserDropdown(false);
+      }
+      if (networkMenuRef.current && !networkMenuRef.current.contains(target)) {
+        setShowNetworkInfo(false);
+      }
+      if (notificationMenuRef.current && !notificationMenuRef.current.contains(target)) {
+        setShowNotificationMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
     };
   }, []);
 
@@ -60,20 +81,20 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
   const recentAlertsCount = cameraEvents.slice(0, 5).length + (lowStockCount > 0 ? 1 : 0);
 
   return (
-    <header className="h-16 bg-slate-900 border-b border-slate-800 px-3 sm:px-6 flex items-center justify-between z-30 sticky top-0">
-      {/* Left: Hamburger (Mobile) & Brand / Business Title & Mode */}
-      <div className="flex items-center space-x-2 sm:space-x-3">
+    <header className="h-16 bg-slate-900 border-b border-slate-800 px-3 sm:px-6 flex items-center justify-between z-30 sticky top-0 overflow-x-auto whitespace-nowrap scrollbar-none touch-pan-x gap-2">
+      {/* Left: Hamburger (Mobile) & Brand / Business Title & Mode Badge */}
+      <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
         {onToggleSidebar && (
           <button
             onClick={onToggleSidebar}
             aria-label="Fungua Menyu"
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 md:hidden transition"
+            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 md:hidden transition shrink-0"
           >
             <Menu className="w-5 h-5" />
           </button>
         )}
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 shrink-0">
           <img
             src="/ebs-app-icon-pure.png"
             alt="EBS"
@@ -82,66 +103,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
           <div className="hidden sm:block">
             <h1 className="text-sm font-bold text-white leading-tight flex items-center gap-1.5 truncate max-w-[160px] lg:max-w-none">
               <span>{profile?.name || 'EBS SMART BIZ'}</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-emerald-400 font-bold border border-slate-700">
+                {BUSINESS_MODE_INFO[profile.mode]?.emoji || '🏢'} {BUSINESS_MODE_INFO[profile.mode]?.label || 'General'}
+              </span>
             </h1>
             <p className="text-[11px] text-slate-400 font-mono">
               TIN: {profile.tin || '134-589-201'} • TZS
             </p>
           </div>
-        </div>
-
-        {/* Business Mode Switcher */}
-        <div className="relative">
-          <button
-            id="btn-switch-mode"
-            onClick={() => {
-              setShowModeDropdown(!showModeDropdown);
-              setShowUserDropdown(false);
-              setShowNotificationMenu(false);
-            }}
-            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 text-xs font-bold border border-slate-700 transition"
-          >
-            <span>{BUSINESS_MODE_INFO[profile.mode]?.emoji || '🏢'}</span>
-            <span className="hidden sm:inline">{BUSINESS_MODE_INFO[profile.mode]?.label || 'General'}</span>
-            <ChevronDown className="w-3.5 h-3.5 opacity-70" />
-          </button>
-
-          {showModeDropdown && (
-            <div className="absolute left-0 mt-2 w-72 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-              <div className="text-xs font-bold text-slate-400 px-3 py-1.5 border-b border-slate-800 mb-1">
-                Chagua Hali ya Biashara (Mode):
-              </div>
-              {(Object.keys(BUSINESS_MODE_INFO) as BusinessMode[]).map((modeKey) => {
-                const info = BUSINESS_MODE_INFO[modeKey];
-                const isSelected = profile.mode === modeKey;
-                return (
-                  <button
-                    key={modeKey}
-                    id={`mode-select-${modeKey}`}
-                    onClick={() => {
-                      setBusinessMode(modeKey);
-                      setShowModeDropdown(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-start space-x-2.5 transition ${
-                      isSelected
-                        ? 'bg-emerald-950/70 text-emerald-300 font-bold border border-emerald-800'
-                        : 'hover:bg-slate-800 text-slate-300'
-                    }`}
-                  >
-                    <span className="text-base">{info.emoji}</span>
-                    <div className="flex-1">
-                      <div className="font-semibold flex items-center justify-between">
-                        <span>{info.label}</span>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-emerald-400" />}
-                      </div>
-                      <div className="text-[11px] text-slate-400 font-normal leading-normal mt-0.5">
-                        {info.description}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
         </div>
       </div>
 
@@ -172,14 +141,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
         </button>
 
         {/* Online / Offline & Supabase Sync Status Indicator (Section E) */}
-        <div className="relative">
+        <div className="relative" ref={networkMenuRef}>
           <button
             id="btn-navbar-network-status"
             onClick={() => {
               setShowNetworkInfo(!showNetworkInfo);
               setShowUserDropdown(false);
               setShowNotificationMenu(false);
-              setShowModeDropdown(false);
             }}
             title={
               isActuallyOnline
@@ -284,13 +252,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
         </div>
 
         {/* Notifications & Alerts */}
-        <div className="relative">
+        <div className="relative" ref={notificationMenuRef}>
           <button
             id="btn-navbar-alerts"
             onClick={() => {
               setShowNotificationMenu(!showNotificationMenu);
               setShowUserDropdown(false);
-              setShowModeDropdown(false);
+              setShowNetworkInfo(false);
             }}
             className="relative p-2 text-slate-300 hover:text-white rounded-xl hover:bg-slate-800 transition"
           >
@@ -371,13 +339,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
         </button>
 
         {/* Current Active User Selector */}
-        <div className="relative">
+        <div className="relative" ref={userMenuRef}>
           <button
             id="btn-active-user-menu"
             onClick={() => {
               setShowUserDropdown(!showUserDropdown);
-              setShowModeDropdown(false);
               setShowNotificationMenu(false);
+              setShowNetworkInfo(false);
             }}
             className="flex items-center space-x-2 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition"
           >
@@ -409,11 +377,11 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onOpenQuickSale
               </div>
 
               <div className="space-y-1 max-h-48 overflow-y-auto">
-                {users.map((u) => {
+                {users.map((u, idx) => {
                   const isCurrent = u?.id && currentUser?.id ? u.id === currentUser.id : false;
                   return (
                     <button
-                      key={u?.id || Math.random()}
+                      key={`nav-user-${u?.id || idx}-${idx}`}
                       id={u?.id ? `switch-user-${u.id}` : undefined}
                       onClick={() => {
                         if (u) setCurrentUser(u);

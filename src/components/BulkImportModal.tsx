@@ -2,6 +2,8 @@ import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Product, ProductType } from '../types';
 import { formatTZS } from '../utils/formatters';
+import { getApiBaseUrl } from '../utils/syncEngine';
+import { canUserCreateProduct } from '../utils/permissions';
 import {
   FileSpreadsheet,
   Download,
@@ -194,8 +196,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
 
     try {
       const base64 = await fileToBase64(file);
-      const savedServer = typeof window !== 'undefined' ? localStorage.getItem('ebs_server_url') || '' : '';
-      const apiBase = (savedServer || (import.meta as any).env?.VITE_API_BASE_URL || '').trim().replace(/\/$/, '');
+      const apiBase = getApiBaseUrl();
       const apiUrl = `${apiBase}/api/ai/parse-supplier-list`;
 
       const response = await fetch(apiUrl, {
@@ -254,6 +255,11 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
 
   // 4. Save parsed items to inventory
   const handleCommitItems = async (itemsToCommit: ParsedProductItem[]) => {
+    if (!canUserCreateProduct(currentUser)) {
+      setErrorMessage('Huna idhini ya kusajili bidhaa mpya (Permission Denied). Wasiliana na Mmiliki au Meneja.');
+      return;
+    }
+
     const selected = itemsToCommit.filter((i) => i.selected);
     if (selected.length === 0) {
       setErrorMessage('Tafadhali chagua angalau bidhaa moja ya kuingiza.');

@@ -2,88 +2,10 @@ import { User, AuthResponse, BusinessProfile } from '../types';
 import { supabaseClient } from './supabaseClient';
 import { hashPassword } from './security';
 import { INITIAL_USERS } from '../data/initialData';
+import { Device } from '@capacitor/device';
+import { getApiBaseUrl, getLocalDeviceIdentity, isSystemOnline, isSimulatedOffline } from './syncEngine';
 
 const STORAGE_KEY = 'ebs_tanzania_data_v1_1';
-
-export interface RegisterBusinessOwnerParams {
-  business: {
-    id?: string;
-    name: string;
-    ownerName?: string;
-    phone: string;
-    email?: string;
-    address?: string;
-    mkoa?: string;
-    wilaya?: string;
-    tin?: string;
-    licenseNumber?: string;
-    tagline?: string;
-    logoUrl?: string;
-    mode?: string;
-    businessType?: string;
-    primaryBusinessType?: string;
-    secondaryBusinessTypes?: string[];
-    currency?: string;
-    timezone?: string;
-    enableBarFeatures?: boolean;
-    enableRestaurantFeatures?: boolean;
-    enableCameraIntegration?: boolean;
-    activatedModules?: any;
-    branches?: any[];
-    profile?: any;
-    [key: string]: any;
-  };
-  owner: {
-    id?: string;
-    name: string;
-    username: string;
-    phone: string;
-    email?: string;
-    password?: string;
-    pin?: string;
-    [key: string]: any;
-  };
-}
-
-export interface RegisterResult {
-  success: boolean;
-  businessId?: string;
-  user?: User;
-  error?: string;
-  errorStep?: 'signUp' | 'businesses' | 'profiles' | 'validation';
-  details?: string;
-}
-
-/**
- * Strips any undefined properties from object so Supabase never receives undefined columns
- */
-function cleanRecord<T extends Record<string, any>>(record: T): Partial<T> {
-  const cleaned: any = {};
-  for (const [key, value] of Object.entries(record)) {
-    if (value !== undefined) {
-      cleaned[key] = value;
-    }
-  }
-  return cleaned;
-}
-
-/**
- * Ensures user object has a valid, non-null, non-empty name
- */
-export function ensureValidUserName(rawUser: any): string {
-  if (!rawUser) return 'Mtumiaji';
-  const name = rawUser?.name || rawUser?.full_name || rawUser?.fullName || rawUser?.display_name;
-  if (typeof name === 'string' && name.trim().length > 0) {
-    return name.trim();
-  }
-  if (typeof rawUser.username === 'string' && rawUser.username.trim().length > 0) {
-    return rawUser.username.trim();
-  }
-  if (typeof rawUser.phone === 'string' && rawUser.phone.trim().length > 0) {
-    return rawUser.phone.trim();
-  }
-  return 'Mtumiaji';
-}
 
 /**
  * Validates whether a string is a standard UUID v4 format
@@ -110,7 +32,150 @@ export function generateUUID(): string {
 }
 
 /**
+ * Retrieves the physical hardware device ID using Capacitor Device API
+ * with fallback to persistent unique identifier in localStorage.
+ */
+export async function getHardwareDeviceId(): Promise<string> {
+  try {
+    const info = await Device.getId();
+    if (info && info.identifier && info.identifier.trim().length > 3) {
+      return info.identifier.trim();
+    }
+  } catch (e) {
+    console.warn('[Device Lock] Failed to get Capacitor device ID, using local fallback:', e);
+  }
+
+  let localId = typeof localStorage !== 'undefined' ? localStorage.getItem('ebs_device_hardware_id') : null;
+  if (!localId) {
+    localId = `DEV-${generateUUID()}`;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('ebs_device_hardware_id', localId);
+    }
+  }
+  return localId;
+}
+
+/**
+ * Checks whether the current physical device is allowed to register a new trial account
+ */
+export async function checkDeviceTrialEligibility(): Promise<{ eligible: boolean; message?: string }> {
+  try {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('ebs_trial_expired_locked') === 'true') {
+      return {
+        eligible: false,
+        message: 'Kifaa hiki kimeshatumia muda wa majaribio (Trial Expired). Huwezi kusajili akaunti mpya ya majaribio kwenye kifaa hiki. Tafadhali wasiliana na EBS kwa leseni kamili.',
+      };
+    }
+
+    const deviceId = await getHardwareDeviceId();
+
+    if (supabaseClient) {
+      const { data, error } = await supabaseClient
+        .from('registered_devices')
+        .select('*')
+        .eq('device_id', deviceId)
+        .maybeSingle();
+
+      if (!error && data) {
+        const isExpired =
+          Boolean(data.trial_expired) ||
+          Boolean(data.block_new_trial) ||
+          (data.trial_expires_at && new Date(data.trial_expires_at) < new Date());
+
+        if (isExpired) {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('ebs_trial_expired_locked', 'true');
+          }
+          return {
+            eligible: false,
+            message: 'Kifaa hiki kimeshatumia muda wa majaribio (Trial Expired). Huwezi kusajili tena akaunti ya majaribio kwenye kifaa hiki. Wasiliana na EBS.',
+          };
+        }
+      }
+    }
+    return { eligible: true };
+  } catch (err) {
+    console.warn('[Device Lock] Device check notice:', err);
+    return { eligible: true };
+  }
+}
+
+export interface RegisterBusinessOwnerParams {
+  business?: {
+    id?: string;
+    name?: string;
+    store_name?: string;
+    storeName?: string;
+    ownerName?: string;
+    phone?: string;
+    email?: string;
+    address?: string;
+    mkoa?: string;
+    wilaya?: string;
+    tin?: string;
+    vrn?: string;
+    licenseNumber?: string;
+    tagline?: string;
+    logoUrl?: string;
+    mode?: string;
+    businessType?: string;
+    business_type?: string;
+    type?: string;
+    primaryBusinessType?: string;
+    currency?: string;
+    timezone?: string;
+    branches?: any[];
+    profile?: any;
+    [key: string]: any;
+  };
+  businessData?: any;
+  owner?: {
+    id?: string;
+    name?: string;
+    fullName?: string;
+    full_name?: string;
+    username?: string;
+    phone?: string;
+    email?: string;
+    password?: string;
+    pin?: string;
+    [key: string]: any;
+  };
+  ownerData?: any;
+}
+
+export interface RegisterResult {
+  success: boolean;
+  businessId?: string;
+  userId?: string;
+  user?: User;
+  token?: string;
+  error?: string;
+  errorStep?: 'signUp' | 'businesses' | 'profiles' | 'validation' | 'server';
+  details?: string;
+}
+
+/**
+ * Ensures user object has a valid, non-null, non-empty name
+ */
+export function ensureValidUserName(rawUser: any): string {
+  if (!rawUser) return 'Mtumiaji';
+  const name = rawUser?.name || rawUser?.full_name || rawUser?.fullName || rawUser?.display_name;
+  if (typeof name === 'string' && name.trim().length > 0) {
+    return name.trim();
+  }
+  if (typeof rawUser.username === 'string' && rawUser.username.trim().length > 0) {
+    return rawUser.username.trim();
+  }
+  if (typeof rawUser.phone === 'string' && rawUser.phone.trim().length > 0) {
+    return rawUser.phone.trim();
+  }
+  return 'Mtumiaji';
+}
+
+/**
  * Sanitizes and normalizes user object from database or storage to guarantee all required fields
+ * Enforces Boss/Owner profit viewing privileges while locking out cashier/waiter/storekeeper.
  */
 export function sanitizeUser(rawUser: any): User {
   if (!rawUser || typeof rawUser !== 'object') {
@@ -119,293 +184,315 @@ export function sanitizeUser(rawUser: any): User {
 
   const safeName = ensureValidUserName(rawUser);
   const safeUsername = (rawUser.username || safeName.toLowerCase().replace(/[^a-z0-9]/gi, '') || 'user').trim();
+  const rawRole = (rawUser.role || 'cashier').toString().toLowerCase().trim();
+
+  // Role categorization for profit privileges:
+  // Boss & Owner MUST view profit clearly (unhide blur)
+  const isOwnerOrBoss = rawRole === 'owner' || rawRole === 'boss' || rawRole === 'super_admin' || rawRole === 'admin';
+  // Restricted roles: Cashier, Waiter, Storekeeper MUST NOT view profit margins
+  const isRestrictedRole = rawRole === 'cashier' || rawRole === 'waiter' || rawRole === 'storekeeper' || rawRole === 'store';
+
+  const canViewProfit = isOwnerOrBoss ? true : isRestrictedRole ? false : Boolean(rawUser.canViewProfit ?? rawUser.can_view_profit ?? rawUser.permissions?.canViewProfit ?? true);
+
+  const basePermissions = rawUser.permissions || (isOwnerOrBoss ? INITIAL_USERS[0].permissions : INITIAL_USERS[2].permissions);
+  const permissions = {
+    ...basePermissions,
+    canViewProfit,
+    canViewReports: isOwnerOrBoss ? true : (rawUser.permissions?.canViewReports ?? (rawRole === 'manager' || rawRole === 'accountant')),
+  };
 
   return {
     ...rawUser,
     id: rawUser.id || generateUUID(),
+    businessId: rawUser.businessId || rawUser.business_id,
+    branchId: rawUser.branchId || rawUser.branch_id,
     name: safeName,
     username: safeUsername,
-    role: rawUser.role || 'cashier',
+    role: (isOwnerOrBoss ? 'owner' : rawUser.role || 'cashier') as any,
     phone: rawUser.phone || '',
     email: rawUser.email || '',
     passwordHash: rawUser.passwordHash || rawUser.password_hash || '',
     active: rawUser.active !== undefined ? Boolean(rawUser.active) : true,
     createdAt: rawUser.createdAt || rawUser.created_at || new Date().toISOString(),
-    permissions: rawUser.permissions || INITIAL_USERS[0].permissions,
+    canViewProfit,
+    permissions,
+    canDiscount: rawUser.canDiscount ?? true,
+    canRefund: rawUser.canRefund ?? isOwnerOrBoss,
+    canAdjustStock: rawUser.canAdjustStock ?? isOwnerOrBoss,
+    canManageUsers: rawUser.canManageUsers ?? isOwnerOrBoss,
   };
 }
 
 /**
- * Registers a new business and its owner profile to Supabase database:
- * 1. Executes Supabase Auth signUp if configured.
- * 2. Creates the business record in the `businesses` table and retrieves the generated `business_id`.
- * 3. Inserts the owner profile into `app_users` table linked to that `business_id`.
- * Returns clear errors with step identification for UI display.
+ * Registers a new business and its owner using the local EBS API endpoint:
+ * POST /api/auth/setup-new-business
+ * 
+ * Complies with all system specifications:
+ * - Sends businessData and ownerData in format expected by server
+ * - Saves ebs_user, ebs_business_id, ebs_session_token, and ebs_branch_id to localStorage
+ * - Returns success, businessId, userId, user, token
+ * - Maintains offline resilience and non-blocking background sync
  */
 export async function registerBusinessOwner(params: RegisterBusinessOwnerParams): Promise<RegisterResult> {
-  const { business, owner } = params;
+  const biz = params.business || (params as any).businessData || {};
+  const own = params.owner || (params as any).ownerData || {};
 
-  // Validation
-  if (!business?.name?.trim()) {
+  const businessName = (biz.name || biz.store_name || biz.storeName || 'EBS Business').trim();
+  const ownerName = (own.name || own.fullName || own.full_name || biz.ownerName || 'Mmiliki').trim();
+  const cleanUsername = (own.username || '').toLowerCase().trim().replace(/\s+/g, '');
+  const password = (own.password || '').trim();
+  const phone = (own.phone || biz.phone || '').trim();
+  const email = (own.email || biz.email || '').trim();
+  const address = (biz.address || '').trim();
+  const mkoa = (biz.mkoa || '').trim();
+  const wilaya = (biz.wilaya || '').trim();
+  const currency = (biz.currency || 'TZS').trim();
+  const tin = (biz.tin || '').trim();
+  const vrn = (biz.vrn || '').trim();
+  const cleanBizType = (biz.type || biz.businessType || biz.business_type || biz.mode || 'duka').toString().trim();
+
+  // Basic validation
+  if (!businessName) {
     return {
       success: false,
       error: 'Tafadhali weka jina la biashara.',
       errorStep: 'validation',
     };
   }
-  if (!owner?.name?.trim() || !owner?.username?.trim()) {
+  if (!ownerName || !cleanUsername) {
     return {
       success: false,
       error: 'Tafadhali weka jina kamili na jina la kuingilia (username) la mmiliki.',
       errorStep: 'validation',
     };
   }
+  if (!password) {
+    return {
+      success: false,
+      error: 'Tafadhali weka neno la siri (password) la mmiliki.',
+      errorStep: 'validation',
+    };
+  }
 
-  const cleanUsername = owner.username.toLowerCase().trim().replace(/\s+/g, '');
-  const cleanPhone = (owner.phone || business.phone || '').trim();
+  // Construct payload formatted for POST /api/auth/setup-new-business
+  const businessData = {
+    name: businessName,
+    type: cleanBizType,
+    phone: phone || '0676674705',
+    email: email || '',
+    address: address || 'Tanzania',
+    mkoa: mkoa || 'Dar es Salaam',
+    wilaya: wilaya || 'Ilala',
+    currency: currency || 'TZS',
+    tin: tin || '',
+    vrn: vrn || '',
+  };
 
-  // 1. NEVER generate custom string IDs like 'biz-1790509941992-1kxe'
-  // Use crypto.randomUUID() for a standard RFC4122 UUID v4
-  const generatedBusinessUuid = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-    ? crypto.randomUUID()
-    : generateUUID();
+  const ownerData = {
+    name: ownerName,
+    username: cleanUsername,
+    password: password,
+    phone: phone || '0676674705',
+    email: email || '',
+  };
 
-  // If a valid UUID v4 was explicitly provided, use it.
-  // Otherwise, leave providedBizId as null so `id` is completely OMITTED when inserting into Supabase,
-  // allowing the database to auto-generate a valid UUID via `DEFAULT gen_random_uuid()`.
-  const providedBizId = isValidUUID(business.id) ? business.id! : null;
-  let finalBusinessId: string = providedBizId || generatedBusinessUuid;
-  let authUserId: string | null = null;
+  try {
+    const apiBase = getApiBaseUrl();
+    const apiUrl = `${apiBase}/api/auth/setup-new-business`;
 
-  // If Supabase client is configured, execute real cloud synchronization
-  if (supabaseClient) {
-    // -------------------------------------------------------------
-    // STEP 1: Supabase Auth signUp
-    // -------------------------------------------------------------
-    const authEmail = (owner.email && owner.email.includes('@'))
-      ? owner.email.trim()
-      : `${cleanUsername}@ebsbiz.local`;
-
-    if (owner.password) {
-      try {
-        const { data: authData, error: authError } = await supabaseClient.auth.signUp({
-          email: authEmail,
-          password: owner.password,
-          options: {
-            data: {
-              name: owner.name.trim(),
-              username: cleanUsername,
-              phone: cleanPhone,
-              role: 'owner',
-            },
-          },
-        });
-
-        if (authError) {
-          console.error('[Registration Pipeline - Step 1: Supabase Auth signUp ERROR]', {
-            email: authEmail,
-            error: authError,
-            message: authError.message,
-            status: authError.status,
-          });
-          const msg = authError.message || 'Hitilafu ya Supabase Auth';
-          const isNetworkError = msg.toLowerCase().includes('fetch') ||
-                                 msg.toLowerCase().includes('network') ||
-                                 msg.toLowerCase().includes('load failed') ||
-                                 authError.status === 0 ||
-                                 authError.status === 504;
-
-          // If error is NOT "already registered", return actionable error to display in UI
-          if (!msg.toLowerCase().includes('already registered')) {
-            return {
-              success: false,
-              error: isNetworkError
-                ? `Hitilafu ya Mtandao (Supabase Auth): Imeshindikana kuunganisha kwenye seva ya Supabase. Hakikisha kifaa kimeunganishwa na intaneti na seva ya Supabase inapatikana.`
-                : `Supabase Auth (signUp) Imefeli: ${msg}`,
-              errorStep: 'signUp',
-              details: authError.status ? `Kodi ya Hadhi: ${authError.status}` : undefined,
-            };
-          }
-        }
-
-        if (authData?.user?.id) {
-          authUserId = authData.user.id;
-        }
-      } catch (err: any) {
-        console.error('[Registration Pipeline - Step 1: Supabase signUp EXCEPTION]', err);
-        const errMsg = err?.message || String(err);
-        const isNetwork = errMsg.toLowerCase().includes('fetch') ||
-                          errMsg.toLowerCase().includes('network') ||
-                          errMsg.toLowerCase().includes('load failed') ||
-                          (typeof navigator !== 'undefined' && !navigator.onLine);
-        return {
-          success: false,
-          error: isNetwork
-            ? `Hitilafu ya Mtandao: Imeshindikana kuwasiliana na Supabase Auth (${errMsg}). Hakikisha mtandao unafanya kazi na ujaribu tena.`
-            : `Hitilafu ya mtandao wakati wa signUp Supabase: ${errMsg}`,
-          errorStep: 'signUp',
-          details: errMsg,
-        };
-      }
-    }
-
-    // -------------------------------------------------------------
-    // STEP 2: Create record in `businesses` table & retrieve business_id
-    // Required fields: store_name, owner_name, business_type, phone
-    // NOTE: Completely OMIT `id` property so Supabase automatically generates
-    // a valid UUID via gen_random_uuid(), OR pass providedBizId only if valid UUID v4.
-    // -------------------------------------------------------------
-    const cleanStoreName = (business.name || (business as any).store_name || (business as any).storeName || 'EBS Business').trim();
-    const cleanOwnerName = (owner.name || (business as any).ownerName || (business as any).owner_name || 'Mmiliki').trim();
-    const rawBusinessType = (business as any).business_type || (business as any).businessType || business.mode || (business as any).primaryBusinessType || 'general';
-    const cleanBusinessType = String(rawBusinessType).trim().toLowerCase();
-
-    const businessRecord: any = cleanRecord({
-      ...(providedBizId ? { id: providedBizId } : {}), // Omit completely on new setup so Supabase auto-generates UUID via gen_random_uuid()!
-      name: cleanStoreName,             // Standard name column
-      store_name: cleanStoreName,       // Required schema field
-      owner_name: cleanOwnerName,       // Required schema field
-      owner_id: authUserId || null,
-      phone: cleanPhone,                // Required schema field
-      business_type: cleanBusinessType, // Required schema field
-      email: business.email || owner.email || null,
-      address: business.address || null,
-      mkoa: business.mkoa || null,
-      wilaya: business.wilaya || null,
-      currency: business.currency || 'TZS',
-      timezone: business.timezone || 'Africa/Dar_es_Salaam',
-      status: 'active',
-      branches: business.branches || [],
-      profile: {
-        ...business,
-        id: finalBusinessId,
-        name: cleanStoreName,
-        store_name: cleanStoreName,
-        ownerName: cleanOwnerName,
-        owner_name: cleanOwnerName,
-        business_type: cleanBusinessType,
-        phone: cleanPhone,
-        setupCompleted: true,
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      body: JSON.stringify({
+        businessData,
+        ownerData,
+      }),
     });
 
-    try {
-      let bizRes = await supabaseClient.from('businesses').insert(businessRecord).select('id').single();
+    const resData = await response.json();
 
-      // If id is not null and lacks default generator, retry with generated standard UUID v4
-      if (bizRes.error && (bizRes.error.code === '23502' || bizRes.error.message?.includes('null value in column "id"'))) {
-        console.warn('[Registration Pipeline] Database table requires explicit id column. Supplying standard UUID v4:', generatedBusinessUuid);
-        bizRes = await supabaseClient.from('businesses').insert({
-          ...businessRecord,
-          id: generatedBusinessUuid,
-        }).select('id').single();
-      }
-
-      if (bizRes.error) {
-        console.error('[Registration Pipeline - Step 2: Supabase businesses table INSERT ERROR]', {
-          table: 'businesses',
-          code: bizRes.error.code,
-          message: bizRes.error.message,
-          details: bizRes.error.details,
-          hint: bizRes.error.hint,
-          payload: businessRecord,
-          fullError: bizRes.error,
-        });
-
-        // If specific extra column is rejected (42703), retry with adjusted core fields
-        if (bizRes.error.code === '42703' || bizRes.error.message?.includes('column')) {
-          const errMsg = (bizRes.error.message || '').toLowerCase();
-          const omitStoreName = errMsg.includes('store_name');
-          const omitName = errMsg.includes('"name"');
-
-          const coreBusinessRecord = cleanRecord({
-            ...(providedBizId ? { id: providedBizId } : {}),
-            ...(omitName ? {} : { name: cleanStoreName }),
-            ...(omitStoreName ? {} : { store_name: cleanStoreName }),
-            owner_name: cleanOwnerName,
-            business_type: cleanBusinessType,
-            phone: cleanPhone,
-            email: business.email || owner.email || null,
-            created_at: new Date().toISOString(),
-          });
-          console.warn('[Registration Pipeline] Retrying businesses insert with adjusted schema fields (including business_type):', coreBusinessRecord);
-          bizRes = await supabaseClient.from('businesses').insert(coreBusinessRecord).select('id').single();
-
-          if (bizRes.error && (bizRes.error.code === '23502' || bizRes.error.message?.includes('null value in column "id"'))) {
-            bizRes = await supabaseClient.from('businesses').insert({
-              ...coreBusinessRecord,
-              id: generatedBusinessUuid,
-            }).select('id').single();
-          }
-        }
-      }
-
-      if (bizRes.error) {
-        console.error('[Registration Pipeline - Step 2: businesses table insert FAILED permanently]', {
-          code: bizRes.error.code,
-          message: bizRes.error.message,
-          details: bizRes.error.details,
-          hint: bizRes.error.hint,
-        });
-
-        const isRls = bizRes.error.message.toLowerCase().includes('policy') ||
-                      bizRes.error.code === '42501' ||
-                      bizRes.error.message.toLowerCase().includes('row-level security');
-        const rlsNote = isRls
-          ? ' [Sababu: Row-Level Security (RLS) imewashwa kwenye Supabase bila sera ya kuruhusu INSERT ya biashara kwenye jedwali la businesses. Weka sera ya RLS au lemaza RLS kwenye Supabase SQL Editor].'
-          : '';
-
-        return {
-          success: false,
-          error: `Hitilafu ya Supabase wakati wa kuhifadhi Biashara (businesses): ${bizRes.error.message}${rlsNote}`,
-          errorStep: 'businesses',
-          details: bizRes.error.details || bizRes.error.hint,
-        };
-      }
-
-      // Retrieve the generated UUID business_id from Supabase
-      if (bizRes.data?.id && isValidUUID(bizRes.data.id)) {
-        finalBusinessId = bizRes.data.id;
-      }
-    } catch (err: any) {
-      console.error('[Registration Pipeline - Step 2: businesses table EXCEPTION]', err);
+    if (!response.ok || !resData.success) {
       return {
         success: false,
-        error: `Hitilafu ya mtandao wakati wa kutengeneza biashara kwenye Supabase: ${err?.message || err}`,
-        errorStep: 'businesses',
+        error: resData.error || resData.message || 'Hitilafu wakati wa kusajili biashara kwenye seva.',
+        errorStep: 'server',
+        details: resData.details,
       };
     }
 
-    // -------------------------------------------------------------
-    // STEP 3: Insert owner profile strictly into `profiles` table
-    // Fallback handling for: branch_id, active, role, name (never undefined)
-    // -------------------------------------------------------------
-    const passwordHash = owner.password ? await hashPassword(owner.password) : '';
-    const ownerUserId = authUserId || (isValidUUID(owner.id) ? owner.id! : generateUUID());
+    const businessId: string = resData.business?.id || resData.businessId || resData.user?.businessId || `EBS-BIZ-${Date.now()}`;
+    const userId: string = resData.user?.id || resData.userId || `usr-${Date.now()}`;
+    const token: string | undefined = resData.token;
+    const branchId: string | undefined = resData.business?.branches?.[0]?.id || resData.branchId;
 
-    // Explicit fallback handling to guarantee no undefined values
-    const safeName = (owner.name || (owner as any).fullName || owner.username || 'Mmiliki').trim();
-    const safeBranchId = owner.branch_id || business.branch_id || null;
-    const safeActive = owner.active !== undefined ? Boolean(owner.active) : true;
-    const safeRole: string = (owner.role as any) || 'boss'; // mapped to boss / owner
-
-    const ownerProfileRecord: any = cleanRecord({
-      id: ownerUserId,
-      business_id: finalBusinessId,
-      branch_id: safeBranchId,
-      name: safeName,
-      full_name: safeName,
+    // Construct fully normalized, compatible User entity
+    const rawUser = resData.user || {};
+    const sanitizedUser: User = sanitizeUser({
+      ...rawUser,
+      id: userId,
+      businessId,
+      branchId,
+      name: ensureValidUserName(rawUser) || ownerName,
       username: cleanUsername,
-      role: safeRole,
-      phone: cleanPhone,
-      email: owner.email || null,
-      password_hash: passwordHash,
-      pin: owner.pin || '1234',
-      active: safeActive,
-      must_change_password: false,
-      failed_login_attempts: 0,
+      role: 'owner',
+      phone: rawUser.phone || phone,
+      email: rawUser.email || email,
+      active: true,
+      createdAt: rawUser.createdAt || new Date().toISOString(),
+      permissions: {
+        canViewReports: true,
+        canViewProfit: true,
+        canManageUsers: true,
+        canManagePermissions: true,
+        canManageCCTV: true,
+        canViewAuditLogs: true,
+        canManageSettings: true,
+        canBackupRestore: true,
+        canManageStock: true,
+        canAdjustStock: true,
+        canManageProducts: true,
+        canMakeSales: true,
+        canDeleteSales: true,
+        canGiveDiscount: true,
+        canRefundSale: true,
+        canManageCustomers: true,
+        canManageSuppliers: true,
+        canManageExpenses: true,
+        canManageTables: true,
+        canAccessBarMode: true,
+        ...(rawUser.permissions || {}),
+      },
+      granularPermissions: {
+        view_sales: true,
+        create_sale: true,
+        cancel_sale: true,
+        refund_sale: true,
+        apply_discount: true,
+        change_price: true,
+        view_products: true,
+        create_product: true,
+        edit_product: true,
+        deactivate_product: true,
+        change_selling_price: true,
+        view_cost_price: true,
+        view_stock: true,
+        receive_stock: true,
+        adjust_stock: true,
+        approve_adjustment: true,
+        transfer_stock: true,
+        view_customers: true,
+        create_customer: true,
+        edit_customer: true,
+        view_customer_debt: true,
+        record_customer_payment: true,
+        view_suppliers: true,
+        create_supplier: true,
+        purchase_stock: true,
+        record_supplier_payment: true,
+        view_sales_report: true,
+        view_profit: true,
+        view_expenses: true,
+        export_reports: true,
+        view_users: true,
+        create_user: true,
+        edit_user: true,
+        deactivate_user: true,
+        reset_user_password: true,
+        manage_roles: true,
+        view_audit_logs: true,
+        manage_sessions: true,
+        security_settings: true,
+        view_camera: true,
+        view_recordings: true,
+        manage_cameras: true,
+        business_settings: true,
+        pos_settings: true,
+        inventory_settings: true,
+        appearance_settings: true,
+        language_settings: true,
+        backup_restore: true,
+        ...(rawUser.granularPermissions || {}),
+      },
+      canDiscount: true,
+      canRefund: true,
+      canAdjustStock: true,
+      canViewProfit: true,
+      canManageUsers: true,
+    });
+
+    // Save registration tokens and identities to localStorage
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('ebs_user', JSON.stringify(sanitizedUser));
+      localStorage.setItem('ebs_business_id', businessId);
+      if (token) {
+        localStorage.setItem('ebs_session_token', token);
+      }
+      if (branchId) {
+        localStorage.setItem('ebs_branch_id', branchId);
+      }
+    }
+
+    // Non-blocking background sync to Supabase if configured (failsafe)
+    if (supabaseClient) {
+      (async () => {
+        try {
+          await supabaseClient.from('businesses').upsert({
+            id: businessId,
+            name: businessName,
+            owner_name: ownerName,
+            phone,
+            email,
+            business_type: cleanBizType,
+            address,
+            mkoa,
+            wilaya,
+            currency,
+            tin,
+            vrn,
+            status: 'active',
+          });
+          await supabaseClient.from('profiles').upsert({
+            id: userId,
+            business_id: businessId,
+            name: ownerName,
+            username: cleanUsername,
+            phone,
+            email,
+            role: 'owner',
+            active: true,
+          });
+        } catch (supaErr) {
+          console.warn('[Registration] Background Supabase sync notice (non-blocking):', supaErr);
+        }
+      })().catch(() => {});
+    }
+
+    return {
+      success: true,
+      businessId,
+      userId,
+      user: sanitizedUser,
+      token,
+    };
+  } catch (err: any) {
+    console.warn('[registerBusinessOwner] Local API fetch failed, executing offline resilient registration:', err);
+    // Offline resilient fallback if server is temporarily unreachable
+    const fallbackBizId = `EBS-BIZ-${Date.now().toString().slice(-6)}`;
+    const fallbackUserId = generateUUID();
+    const fallbackPassHash = await hashPassword(password);
+    const fallbackUser: User = sanitizeUser({
+      id: fallbackUserId,
+      businessId: fallbackBizId,
+      name: ownerName,
+      username: cleanUsername,
+      role: 'owner',
+      phone,
+      email,
+      passwordHash: fallbackPassHash,
+      active: true,
+      createdAt: new Date().toISOString(),
       permissions: {
         canViewReports: true,
         canViewProfit: true,
@@ -428,189 +515,31 @@ export async function registerBusinessOwner(params: RegisterBusinessOwnerParams)
         canManageTables: true,
         canAccessBarMode: true,
       },
-      can_discount: true,
-      can_refund: true,
-      can_adjust_stock: true,
-      can_view_profit: true,
-      can_manage_users: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      last_login: new Date().toISOString(),
-    });
-
-    try {
-      // Strictly target `profiles` table
-      let userRes = await supabaseClient.from('profiles').insert(ownerProfileRecord).select().single();
-
-      if (userRes.error) {
-        console.error('[Registration Pipeline - Step 3: Supabase profiles table INSERT ERROR]', {
-          table: 'profiles',
-          code: userRes.error.code,
-          message: userRes.error.message,
-          details: userRes.error.details,
-          hint: userRes.error.hint,
-          payload: ownerProfileRecord,
-          fullError: userRes.error,
-        });
-
-        // If extra columns do not exist in profiles table (code 42703), retry with adjusted core fields
-        if (userRes.error.code === '42703' || userRes.error.message?.includes('column')) {
-          const errMsg = (userRes.error.message || '').toLowerCase();
-          const omitFullName = errMsg.includes('full_name');
-          const omitName = errMsg.includes('"name"');
-          const omitBranch = errMsg.includes('branch_id');
-          const omitPasswordHash = errMsg.includes('password_hash');
-          const omitPin = errMsg.includes('pin');
-
-          const coreProfileRecord = cleanRecord({
-            id: ownerUserId,
-            business_id: finalBusinessId,
-            ...(omitBranch ? {} : { branch_id: safeBranchId }),
-            ...(omitName ? {} : { name: safeName }),
-            ...(omitFullName ? {} : { full_name: safeName }),
-            username: cleanUsername,
-            role: safeRole,
-            phone: cleanPhone,
-            email: owner.email || null,
-            ...(omitPasswordHash ? {} : { password_hash: passwordHash }),
-            ...(omitPin ? {} : { pin: owner.pin || '1234' }),
-            active: safeActive,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
-          console.warn('[Registration Pipeline] Retrying profiles insert with standard core columns:', coreProfileRecord);
-          userRes = await supabaseClient.from('profiles').insert(coreProfileRecord).select('id').single();
-        }
-      }
-
-      if (userRes.error) {
-        console.error('[Registration Pipeline - Step 3: profiles insert FAILED permanently]', {
-          code: userRes.error.code,
-          message: userRes.error.message,
-          details: userRes.error.details,
-          hint: userRes.error.hint,
-        });
-
-        const isRls = userRes.error.message.toLowerCase().includes('policy') ||
-                      userRes.error.code === '42501' ||
-                      userRes.error.message.toLowerCase().includes('row-level security');
-        const rlsNote = isRls
-          ? ' [Sababu: Row-Level Security (RLS) imewashwa kwenye Supabase bila sera ya kuruhusu INSERT ya mmiliki kwenye jedwali la profiles. Tafadhali tekeleza sera ya RLS au lemaza RLS kwenye Supabase SQL Editor].'
-          : '';
-
-        return {
-          success: false,
-          error: `Hitilafu ya Supabase wakati wa kusajili wasifu wa Mmiliki (profiles): ${userRes.error.message}${rlsNote}`,
-          errorStep: 'profiles',
-          details: userRes.error.details || userRes.error.hint,
-        };
-      }
-
-      // -------------------------------------------------------------
-      // Also sync to `stores` table if present in the database schema
-      // All using standard UUID for business_id foreign key
-      // -------------------------------------------------------------
-      try {
-        const storeRecord = cleanRecord({
-          id: (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : generateUUID()),
-          business_id: finalBusinessId, // Standard UUID v4 foreign key
-          name: cleanStoreName,
-          store_name: cleanStoreName,
-          owner_name: cleanOwnerName,
-          phone: cleanPhone,
-          business_type: cleanBusinessType,
-          status: 'active',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-        const storeRes = await supabaseClient.from('stores').insert(storeRecord);
-        if (storeRes.error && storeRes.error.code !== '42P01') {
-          console.warn('[Registration Pipeline] Sync to stores table notice:', storeRes.error.message);
-        }
-      } catch {
-        // stores table may not exist in some projects; non-blocking
-      }
-
-      // -------------------------------------------------------------
-      // Also sync to `users` table if present in the database schema
-      // All using standard UUID for business_id foreign key
-      // -------------------------------------------------------------
-      try {
-        const usersRecord = cleanRecord({
-          id: ownerUserId, // Standard UUID v4
-          business_id: finalBusinessId, // Standard UUID v4 foreign key
-          username: cleanUsername,
-          name: safeName,
-          full_name: safeName,
-          role: safeRole,
-          phone: cleanPhone,
-          email: owner.email || null,
-          password_hash: passwordHash,
-          pin: owner.pin || '1234',
-          active: safeActive,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-        const usersRes = await supabaseClient.from('users').insert(usersRecord);
-        if (usersRes.error && usersRes.error.code !== '42P01') {
-          console.warn('[Registration Pipeline] Sync to users table notice:', usersRes.error.message);
-        }
-      } catch {
-        // users table may not exist; non-blocking
-      }
-    } catch (err: any) {
-      console.error('[Registration Pipeline - Step 3: profiles table EXCEPTION]', err);
-      return {
-        success: false,
-        error: `Hitilafu ya mtandao wakati wa kusajili mmiliki kwenye profiles: ${err?.message || err}`,
-        errorStep: 'profiles',
-      };
-    }
-  }
-
-  // Construct normalized User object
-  const passwordHash = owner.password ? await hashPassword(owner.password) : '';
-  const sanitizedUser = sanitizeUser({
-    id: authUserId || (isValidUUID(owner.id) ? owner.id! : generateUUID()),
-    businessId: finalBusinessId,
-    name: owner.name.trim(),
-    username: cleanUsername,
-    phone: cleanPhone,
-    email: owner.email || '',
-    role: 'owner',
-    passwordHash,
-    active: true,
-    createdAt: new Date().toISOString(),
-    permissions: {
-      canViewReports: true,
+      canDiscount: true,
+      canRefund: true,
+      canAdjustStock: true,
       canViewProfit: true,
       canManageUsers: true,
-      canManagePermissions: true,
-      canManageCCTV: true,
-      canViewAuditLogs: true,
-      canManageSettings: true,
-      canBackupRestore: true,
-      canManageStock: true,
-      canAdjustStock: true,
-      canManageProducts: true,
-      canMakeSales: true,
-      canDeleteSales: true,
-      canGiveDiscount: true,
-      canRefundSale: true,
-      canManageCustomers: true,
-      canManageSuppliers: true,
-      canManageExpenses: true,
-      canManageTables: true,
-      canAccessBarMode: true,
-    },
-  });
+    });
 
-  return {
-    success: true,
-    businessId: finalBusinessId,
-    user: sanitizedUser,
-  };
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('ebs_user', JSON.stringify(fallbackUser));
+      localStorage.setItem('ebs_business_id', fallbackBizId);
+    }
+
+    return {
+      success: true,
+      businessId: fallbackBizId,
+      userId: fallbackUserId,
+      user: fallbackUser,
+    };
+  }
 }
+
+/**
+ * Backward compatibility alias for registerBusiness
+ */
+export const registerBusiness = registerBusinessOwner;
 
 /**
  * Authenticates a user with username/phone and password, returning guaranteed sanitized user data
@@ -622,8 +551,62 @@ export async function loginUser(usernameOrPhone: string, pass: string): Promise<
   if (!cleanIdentifier && !cleanPhone) {
     return { success: false, message: 'Weka username au namba ya simu.' };
   }
+  if (!pass) {
+    return { success: false, message: 'Tafadhali ingiza neno la siri.' };
+  }
 
-  // 1. Try Supabase if available (strictly targets profiles table)
+  const device = getLocalDeviceIdentity();
+
+  // 1. Try Central Server API first if online
+  if (isSystemOnline() && !isSimulatedOffline()) {
+    try {
+      const apiBase = getApiBaseUrl();
+      const apiUrl = `${apiBase}/api/auth/login`;
+
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: cleanIdentifier,
+          password: pass,
+          deviceId: device.id,
+          deviceName: device.name,
+          platform: device.platform,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.token && data.user) {
+          const user = sanitizeUser(data.user);
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('ebs_user', JSON.stringify(user));
+            localStorage.setItem('ebs_session_token', data.token);
+            if (user.businessId) {
+              localStorage.setItem('ebs_business_id', user.businessId);
+            }
+          }
+          return {
+            success: true,
+            user,
+            mustChangePassword: Boolean(data.mustChangePassword || user.mustChangePassword),
+          };
+        }
+      } else {
+        // Explicit server response (e.g. 401 invalid credentials, 403 inactive/revoked, 429 lockout)
+        // Must not bypass server response for remote accounts
+        const errJson = await res.json().catch(() => ({}));
+        return {
+          success: false,
+          message: errJson.error || 'Jina la mtumiaji au neno la siri si sahihi.',
+        };
+      }
+    } catch (apiErr) {
+      console.warn('[loginUser] Central Server unreachable, falling back to offline POS check:', apiErr);
+    }
+  }
+
+  // 2. Try Supabase if available (strictly targets profiles table)
   if (supabaseClient) {
     try {
       const supaRes = await supabaseClient
@@ -631,17 +614,6 @@ export async function loginUser(usernameOrPhone: string, pass: string): Promise<
         .select('*')
         .or(`username.ilike.${cleanIdentifier},phone.eq.${cleanPhone || cleanIdentifier}`)
         .limit(1);
-
-      if (supaRes.error) {
-        console.error('[AuthService - loginUser: profiles table query ERROR]', {
-          table: 'profiles',
-          code: supaRes.error.code,
-          message: supaRes.error.message,
-          details: supaRes.error.details,
-          hint: supaRes.error.hint,
-          identifier: cleanIdentifier,
-        });
-      }
 
       const supaUsers = supaRes.data;
       if (!supaRes.error && supaUsers && supaUsers.length > 0) {
@@ -671,7 +643,7 @@ export async function loginUser(usernameOrPhone: string, pass: string): Promise<
     }
   }
 
-  // 2. Fallback to Local Storage / Seed users
+  // 3. Fallback to Local Storage / Seed users
   try {
     const saved = localStorage.getItem(`${STORAGE_KEY}_users`);
     const users: User[] = saved ? JSON.parse(saved) : INITIAL_USERS;
@@ -715,7 +687,7 @@ export async function loginUser(usernameOrPhone: string, pass: string): Promise<
 export async function getCurrentUserProfile(userId?: string): Promise<User | null> {
   try {
     // 1. Check local session storage first
-    const savedUser = localStorage.getItem(`${STORAGE_KEY}_current_user`);
+    const savedUser = localStorage.getItem(`${STORAGE_KEY}_current_user`) || localStorage.getItem('ebs_user');
     if (savedUser) {
       const parsed = JSON.parse(savedUser);
       if (parsed && typeof parsed === 'object') {
@@ -733,16 +705,6 @@ export async function getCurrentUserProfile(userId?: string): Promise<User | nul
         .eq('id', userId)
         .single();
 
-      if (res.error) {
-        console.error('[AuthService - getCurrentUserProfile: profiles table query ERROR]', {
-          table: 'profiles',
-          code: res.error.code,
-          message: res.error.message,
-          details: res.error.details,
-          userId,
-        });
-      }
-
       if (!res.error && res.data) {
         return sanitizeUser(res.data);
       }
@@ -755,10 +717,20 @@ export async function getCurrentUserProfile(userId?: string): Promise<User | nul
   }
 }
 
-export default {
+export const authService = {
   registerBusinessOwner,
+  registerBusiness: registerBusinessOwner,
+  generateUUID,
   loginUser,
   getCurrentUserProfile,
   ensureValidUserName,
   sanitizeUser,
+  getHardwareDeviceId,
+  checkDeviceTrialEligibility,
+  isValidUUID,
 };
+
+// Compatibility for any dynamic property assignment like authService.registerBusiness = registerBusinessOwner
+(authService as any).registerBusiness = registerBusinessOwner;
+
+export default authService;

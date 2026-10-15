@@ -3,6 +3,12 @@ import { useApp } from '../context/AppContext';
 import { Product, ProductType, StockMovementType, MedicineClassification, PackagingUnit } from '../types';
 import { formatTZS, formatDateTime } from '../utils/formatters';
 import { isProductActive, isDemoProduct, getMedicineExpiryStatus, PHARMACY_DOSAGE_FORMS } from '../utils/productUtils';
+import {
+  canUserCreateProduct,
+  canUserEditProduct,
+  canUserDeleteProduct,
+  canUserAdjustStock
+} from '../utils/permissions';
 import { BulkImportModal } from './BulkImportModal';
 import {
   Package,
@@ -223,8 +229,16 @@ export const InventoryView: React.FC = () => {
   }, [products]);
 
   const isOwnerOrAdmin = currentUser?.role === 'owner' || currentUser?.role === 'admin';
+  const canCreateProduct = useMemo(() => canUserCreateProduct(currentUser), [currentUser]);
+  const canEditProduct = useMemo(() => canUserEditProduct(currentUser), [currentUser]);
+  const canDeleteProduct = useMemo(() => canUserDeleteProduct(currentUser), [currentUser]);
+  const canAdjustStock = useMemo(() => canUserAdjustStock(currentUser), [currentUser]);
 
   const handleOpenAddModal = () => {
+    if (!canCreateProduct) {
+      showToast('Huna idhini ya kuongeza bidhaa mpya (Permission Denied). Wasiliana na Mmiliki au Meneja.');
+      return;
+    }
     const isPh = profile.mode === 'pharmacy';
     setEditingProduct(null);
     setFormData({
@@ -256,6 +270,10 @@ export const InventoryView: React.FC = () => {
   };
 
   const handleOpenEditModal = (p: Product) => {
+    if (!canEditProduct) {
+      showToast('Huna idhini ya kuhariri taarifa za bidhaa hii (Permission Denied). Wasiliana na Mmiliki au Meneja.');
+      return;
+    }
     setEditingProduct(p);
     setFormData({
       name: p?.name || '',
@@ -287,6 +305,11 @@ export const InventoryView: React.FC = () => {
 
   const handleSaveProduct = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (editingProduct ? !canEditProduct : !canCreateProduct) {
+      showToast('Huna idhini ya kukamilisha kitendo hiki (Permission Denied). Wasiliana na Mmiliki au Meneja.');
+      return;
+    }
 
     const buyingPrice = parseFloat(formData.buyingPrice) || 0;
     const sellingPrice = parseFloat(formData.sellingPrice) || 0;
@@ -366,6 +389,10 @@ export const InventoryView: React.FC = () => {
   };
 
   const handleOpenAdjustModal = (p: Product) => {
+    if (!canAdjustStock) {
+      showToast('Huna idhini ya kurekebisha stoo moja kwa moja (Permission Denied). Wasiliana na Mmiliki au Msimamizi wa Stoo.');
+      return;
+    }
     setAdjustTargetProduct(p);
     setAdjustDelta('1');
     setAdjustType('purchase');
@@ -376,18 +403,30 @@ export const InventoryView: React.FC = () => {
 
   const handleConfirmArchive = () => {
     if (!archiveTargetProduct) return;
+    if (!canDeleteProduct) {
+      showToast('Huna idhini ya kuondoa au kuzima bidhaa (Permission Denied).');
+      return;
+    }
     deleteProduct(archiveTargetProduct.id);
     showToast(`Bidhaa ya "${archiveTargetProduct?.name || 'Bidhaa'}" imeondolewa kwenye orodha ya mauzo na kuhifadhiwa.`);
     setArchiveTargetProduct(null);
   };
 
   const handleRestoreProduct = (p: Product) => {
+    if (!canEditProduct && !canDeleteProduct) {
+      showToast('Huna idhini ya kurejesha bidhaa iliyozimwa (Permission Denied).');
+      return;
+    }
     restoreProduct(p.id);
     showToast(`Bidhaa ya "${p?.name || 'Bidhaa'}" imerejeshwa kutumika kwenye mauzo na stoo.`);
   };
 
   const handleConfirmHardDelete = () => {
     if (!deleteTargetProduct) return;
+    if (!canDeleteProduct) {
+      showToast('Huna idhini ya kufuta bidhaa kabisa kwenye mfumo (Permission Denied).');
+      return;
+    }
     const result = hardDeleteProduct(deleteTargetProduct.id);
     showToast(result.message);
     setDeleteTargetProduct(null);
@@ -404,6 +443,11 @@ export const InventoryView: React.FC = () => {
   const handleConfirmAdjust = (e: React.FormEvent) => {
     e.preventDefault();
     if (!adjustTargetProduct) return;
+
+    if (!canAdjustStock) {
+      showToast('Huna idhini ya kurekebisha hesabu ya stoo (Permission Denied).');
+      return;
+    }
 
     const delta = parseFloat(adjustDelta) || 0;
     if (delta === 0) return;
@@ -518,24 +562,28 @@ export const InventoryView: React.FC = () => {
             </button>
           </div>
 
-          <button
-            id="btn-bulk-import-products"
-            onClick={() => setShowBulkImportModal(true)}
-            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-600/30 transition active:scale-95 shrink-0"
-            title="Pakia Bidhaa kwa Wingi (CSV au Changanua Ankara ya Msambazaji)"
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Pakia kwa Wingi (Bulk)</span>
-          </button>
+          {canCreateProduct && (
+            <>
+              <button
+                id="btn-bulk-import-products"
+                onClick={() => setShowBulkImportModal(true)}
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-600/30 transition active:scale-95 shrink-0"
+                title="Pakia Bidhaa kwa Wingi (CSV au Changanua Ankara ya Msambazaji)"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                <span>Pakia kwa Wingi (Bulk)</span>
+              </button>
 
-          <button
-            id="btn-add-new-product"
-            onClick={handleOpenAddModal}
-            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-600/30 transition active:scale-95 shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Ongeza Bidhaa Mpya</span>
-          </button>
+              <button
+                id="btn-add-new-product"
+                onClick={handleOpenAddModal}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-600/30 transition active:scale-95 shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Ongeza Bidhaa Mpya</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -907,47 +955,63 @@ export const InventoryView: React.FC = () => {
                           <td className="py-3 px-4 text-right">
                             {activeTab === 'archived' ? (
                               <div className="flex items-center justify-end space-x-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleRestoreProduct(p)}
-                                  className="px-2.5 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-700/50 rounded-lg flex items-center gap-1.5 transition"
-                                >
-                                  <RotateCcw className="w-3.5 h-3.5" />
-                                  <span>Rejesha</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setDeleteTargetProduct(p)}
-                                  className="p-1.5 text-red-400 hover:bg-red-950/40 rounded-lg transition"
-                                  title="Futa Kabisa"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                {(canEditProduct || canDeleteProduct) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRestoreProduct(p)}
+                                    className="px-2.5 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-700/50 rounded-lg flex items-center gap-1.5 transition"
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                    <span>Rejesha</span>
+                                  </button>
+                                )}
+                                {canDeleteProduct && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteTargetProduct(p)}
+                                    className="p-1.5 text-red-400 hover:bg-red-950/40 rounded-lg transition"
+                                    title="Futa Kabisa"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                {!canEditProduct && !canDeleteProduct && (
+                                  <span className="text-[11px] text-slate-400 italic">Imehifadhiwa</span>
+                                )}
                               </div>
                             ) : (
                               <div className="flex items-center justify-end space-x-1">
-                                <button
-                                  onClick={() => handleOpenAdjustModal(p)}
-                                  title="Rekebisha Stoo / Ongeza Mzigo"
-                                  className="px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 hover:bg-emerald-100 rounded-lg flex items-center gap-1 transition"
-                                >
-                                  <Sliders className="w-3.5 h-3.5" />
-                                  <span>Stoo</span>
-                                </button>
-                                <button
-                                  onClick={() => handleOpenEditModal(p)}
-                                  title="Hariri Taarifa"
-                                  className="p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 rounded-lg transition"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => setArchiveTargetProduct(p)}
-                                  title="Ondoa / Zima Bidhaa"
-                                  className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                {canAdjustStock && (
+                                  <button
+                                    onClick={() => handleOpenAdjustModal(p)}
+                                    title="Rekebisha Stoo / Ongeza Mzigo"
+                                    className="px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 hover:bg-emerald-100 rounded-lg flex items-center gap-1 transition"
+                                  >
+                                    <Sliders className="w-3.5 h-3.5" />
+                                    <span>Stoo</span>
+                                  </button>
+                                )}
+                                {canEditProduct && (
+                                  <button
+                                    onClick={() => handleOpenEditModal(p)}
+                                    title="Hariri Taarifa"
+                                    className="p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 rounded-lg transition"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                {canDeleteProduct && (
+                                  <button
+                                    onClick={() => setArchiveTargetProduct(p)}
+                                    title="Ondoa / Zima Bidhaa"
+                                    className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                {!canAdjustStock && !canEditProduct && !canDeleteProduct && (
+                                  <span className="text-[11px] text-slate-400 font-medium px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg">Tazama tu</span>
+                                )}
                               </div>
                             )}
                           </td>

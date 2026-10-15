@@ -290,72 +290,58 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onOpenSupe
             )}
           </form>
 
-          {/* Quick Demo Switcher */}
-          <div className="mt-6 pt-5 border-t border-slate-800">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                Akaunti za Majaribio (Demo Roles):
-              </span>
-              <span className="text-[10px] text-slate-500">Bofya kuingia haraka</span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => handleDemoRoleClick('owner')}
-                className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-              >
-                <div className="text-xs font-bold text-amber-300 group-hover:text-amber-200">👑 Owner</div>
-                <div className="text-[10px] text-slate-400 truncate">owner01 (Selemani)</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoRoleClick('manager')}
-                className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-              >
-                <div className="text-xs font-bold text-blue-300 group-hover:text-blue-200">👔 Manager</div>
-                <div className="text-[10px] text-slate-400 truncate">manager01 (Temu)</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoRoleClick('cashier')}
-                className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-              >
-                <div className="text-xs font-bold text-emerald-300 group-hover:text-emerald-200">💳 Cashier</div>
-                <div className="text-[10px] text-slate-400 truncate">cashier01 (Neema)</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoRoleClick('waiter')}
-                className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-              >
-                <div className="text-xs font-bold text-purple-300 group-hover:text-purple-200">🍽️ Waiter</div>
-                <div className="text-[10px] text-slate-400 truncate">waiter01 (Kelvin)</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoRoleClick('storekeeper')}
-                className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-              >
-                <div className="text-xs font-bold text-orange-300 group-hover:text-orange-200">📦 Stoo</div>
-                <div className="text-[10px] text-slate-400 truncate">store01 (Fatuma)</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowChangePassword(true)}
-                className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-              >
-                <div className="text-xs font-bold text-teal-300 group-hover:text-teal-200">🔑 Password</div>
-                <div className="text-[10px] text-slate-400 truncate">Badilisha Neno</div>
-              </button>
-            </div>
+          {/* Self-service Password Change & Account Security */}
+          <div className="mt-5 pt-4 border-t border-slate-800 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setShowChangePassword(true)}
+              className="text-xs text-slate-400 hover:text-emerald-400 transition-colors flex items-center gap-1.5"
+            >
+              <span>🔑</span>
+              <span>Umesahau au unataka kubadilisha neno la siri?</span>
+            </button>
           </div>
+
+          {/* Quick Demo Switcher (Only enabled in development environment) */}
+          {import.meta.env.DEV && (
+            <div className="mt-4 pt-3 border-t border-dashed border-slate-800">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-semibold text-amber-400/80 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-amber-400" />
+                  Mazingira ya Majaribio (Dev Mode Only):
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleDemoRoleClick('owner')}
+                  className="p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700 text-left transition-all"
+                >
+                  <div className="text-[11px] font-bold text-amber-300">👑 Owner</div>
+                  <div className="text-[9px] text-slate-400 truncate">owner01</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDemoRoleClick('manager')}
+                  className="p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700 text-left transition-all"
+                >
+                  <div className="text-[11px] font-bold text-blue-300">👔 Manager</div>
+                  <div className="text-[9px] text-slate-400 truncate">manager01</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDemoRoleClick('cashier')}
+                  className="p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700 text-left transition-all"
+                >
+                  <div className="text-[11px] font-bold text-emerald-300">💳 Cashier</div>
+                  <div className="text-[9px] text-slate-400 truncate">cashier01</div>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Security Footer */}

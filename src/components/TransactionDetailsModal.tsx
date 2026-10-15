@@ -28,6 +28,12 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
 
   const canManageSale = currentUser?.canRefund || currentUser?.role === 'owner' || currentUser?.role === 'admin' || currentUser?.role === 'manager';
 
+  // Privileges: Owner and Boss can ALWAYS view profit
+  // Hide profit margins ONLY for Cashier, Waiter, and Storekeeper
+  const isOwnerOrBoss = currentUser?.role === 'owner' || currentUser?.role === 'boss' || currentUser?.role === 'super_admin' || currentUser?.role === 'admin';
+  const isRestrictedRole = currentUser?.role === 'cashier' || currentUser?.role === 'waiter' || currentUser?.role === 'storekeeper';
+  const canSeeProfit = isOwnerOrBoss ? true : isRestrictedRole ? false : Boolean(currentUser?.canViewProfit);
+
   const handleConfirmAction = () => {
     if (!reason.trim()) {
       alert('Tafadhali weka sababu ya kurejesha au kufuta muamala huu.');
@@ -157,7 +163,7 @@ export const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = (
               <span>JUMLA YA RISITI:</span>
               <span className="text-emerald-600">{formatTZS(sale.total)}</span>
             </div>
-            {currentUser?.canViewProfit && (
+            {canSeeProfit && (
               <div className="flex justify-between text-slate-500 dark:text-slate-400 text-[11px] pt-1">
                 <span>Faida Iliyopatikana (Profit):</span>
                 <span className="font-bold text-teal-600">+{formatTZS(sale.profit)}</span>

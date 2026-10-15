@@ -40,12 +40,15 @@ import {
   Globe,
   Monitor,
   Clock,
-  Laptop
+  Laptop,
+  Bot
 } from 'lucide-react';
+import { AiPersonaSettingsSection } from './AiPersonaSettingsSection';
 
 type SettingsTab =
   | 'business'
   | 'users'
+  | 'ai'
   | 'appearance'
   | 'language'
   | 'pos'
@@ -501,6 +504,7 @@ export const SettingsView: React.FC = () => {
           {[
             { id: 'business', label: 'Taarifa za Biashara', icon: Building2, desc: 'Jina, Eneo & TIN' },
             { id: 'users', label: 'Watumiaji & Mamlaka', icon: Users, desc: 'Akaunti & Passwords', badge: users.length },
+            { id: 'ai', label: 'EBS AI & Haiba za Sauti', icon: Bot, desc: 'Orbit, Capella, Vega, Ursa...', badge: 'Personas' },
             { id: 'appearance', label: 'Mwonekano & Rangi', icon: Palette, desc: 'Dark/Light, Font & Rangi' },
             { id: 'language', label: 'Lugha (Language)', icon: Globe, desc: 'Kiswahili / Kiingereza' },
             { id: 'pos', label: 'POS & Mauzo', icon: CreditCard, desc: 'Kodi, Risiti & Punguzo' },
@@ -798,11 +802,11 @@ export const SettingsView: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/80">
-                    {users.map((u) => {
+                    {users.map((u, idx) => {
                       const roleInfo = ROLE_INFO[u?.role] || { label: u?.role || 'Staff', badgeColor: 'bg-slate-800 text-slate-300', description: '' };
                       const isCurrent = u?.id && currentUser?.id ? u.id === currentUser.id : false;
                       return (
-                        <tr key={u?.id || Math.random()} className="hover:bg-slate-800/40 transition">
+                        <tr key={`settings-user-${u?.id || idx}-${idx}`} className="hover:bg-slate-800/40 transition">
                           <td className="p-3.5">
                             <div className="font-bold text-white flex items-center gap-2">
                               <span>{u.name}</span>
@@ -887,6 +891,13 @@ export const SettingsView: React.FC = () => {
                   </p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* TAB: EBS AI & HAIBA ZA SAUTI (AI PERSONAS) */}
+          {activeTab === 'ai' && (
+            <div className="lg:col-span-3 space-y-6">
+              <AiPersonaSettingsSection standalone={true} />
             </div>
           )}
 

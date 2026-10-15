@@ -196,7 +196,7 @@ export interface SyncTransaction {
   userName: string;
   deviceId: string;
   deviceName: string;
-  entityType: 'sale' | 'stock_adjustment' | 'customer' | 'debt_payment' | 'expense' | 'bar_variance';
+  entityType: 'sale' | 'stock_adjustment' | 'customer' | 'debt_payment' | 'expense' | 'bar_variance' | 'product';
   action: 'create' | 'update' | 'delete';
   payload: any;
   createdAt: string;
@@ -267,6 +267,7 @@ export interface User {
   canAdjustStock?: boolean;
   canViewProfit?: boolean;
   canManageUsers?: boolean;
+  syncStatus?: 'synced' | 'pending' | 'failed';
 }
 
 export type PaymentMethod = 
@@ -729,3 +730,72 @@ export interface AuthResponse {
   mustChangePassword?: boolean;
   temporaryPassword?: string;
 }
+
+// ----------------------------------------------------
+// EBS VISION 1.3 - BOSS REMOTE OVERVIEW TYPES
+// ----------------------------------------------------
+
+export interface LiveOverviewMetrics {
+  salesRevenue: number;
+  yesterdayRevenue: number;
+  monthRevenue: number;
+  grossProfit: number;
+  yesterdayGrossProfit?: number;
+  monthGrossProfit?: number;
+  expensesTotal: number;
+  netProfit: number;
+  cashTotal: number;
+  mobileMoneyTotal: number;
+  cardBankTotal: number;
+  debtTotal: number;
+  transactionsCount: number;
+  yesterdayTransactionsCount: number;
+  monthTransactionsCount: number;
+  totalProducts: number;
+  lowStockCount: number;
+  outOfStockCount: number;
+  totalCustomers: number;
+  totalDebtsCount: number;
+  totalDebtBalance: number;
+  canViewProfit: boolean;
+}
+
+export interface LiveOverviewDevice {
+  id: string;
+  name: string;
+  platform: string;
+  status: string;
+  isOnline: boolean;
+  lastActive: string;
+  lastSync?: string;
+  assignedUserName?: string;
+  assignedRole?: string;
+  isRevoked: boolean;
+}
+
+export interface LiveOverviewRecentSale {
+  id: string;
+  invoiceNo: string;
+  timestamp: string;
+  cashierName: string;
+  total: number;
+  profit?: number;
+  paymentMethod: string;
+  status: string;
+  itemsCount: number;
+}
+
+export interface LiveOverviewResponse {
+  businessId: string;
+  businessName?: string;
+  currency?: string;
+  timestamp: string;
+  metrics: LiveOverviewMetrics;
+  activeDevicesCount: number;
+  totalDevicesCount: number;
+  devices: LiveOverviewDevice[];
+  recentSales: LiveOverviewRecentSale[];
+  error?: string;
+  businessNotFound?: boolean;
+}
+

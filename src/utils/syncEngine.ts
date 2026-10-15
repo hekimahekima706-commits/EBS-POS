@@ -1,4 +1,4 @@
-import { SyncTransaction, BusinessDevice, DevicePlatform, Sale } from '../types';
+import { SyncTransaction, SyncStatus, BusinessDevice, DevicePlatform, Sale, LiveOverviewResponse } from '../types';
 
 const OFFLINE_QUEUE_PREFIX = 'ebs_sync_queue_v13';
 const LOCAL_DEVICE_KEY = 'ebs_local_device_info_v13';
@@ -147,36 +147,94 @@ export function enqueueOfflineTransaction(
 }
 
 /**
+ * Helper to get clean API Base URL:
+ * - In Web Browser & AI Studio Preview: Always returns '' (relative path /api/...)
+ *   which connects cleanly to the active EBS Express/Vite backend on the same origin without CORS issues.
+ * - In Native Shell (Capacitor Android / iOS): Uses saved server URL or VITE_API_BASE_URL.
+ * - If user explicitly configured an external custom server (and not unreachable localhost on remote web):
+ *   Uses that custom server.
+ */
+export function getApiBaseUrl(): string {
+  if (typeof window === 'undefined') return '';
+
+  const isNative =
+    Boolean((window as any)?.Capacitor?.isNativePlatform?.()) ||
+    window.location.protocol === 'capacitor:' ||
+    window.location.protocol === 'file:';
+
+  const saved = localStorage.getItem('ebs_server_url')?.trim();
+
+  // If user explicitly configured a custom server in settings:
+  if (saved && saved.startsWith('http')) {
+    const isRemoteWeb = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+    const isSavedLocalhost = saved.includes('localhost') || saved.includes('127.0.0.1') || saved.includes('0.0.0.0');
+    // Guard against unreachable localhost when running in remote web preview
+    if (!(isRemoteWeb && isSavedLocalhost)) {
+      return saved.replace(/\/$/, '');
+    }
+  }
+
+  // If in native mobile shell (Android APK), use remote server URL from environment
+  if (isNative) {
+    const envUrl = ((import.meta as any).env?.VITE_API_BASE_URL || '').trim().replace(/\/$/, '');
+    return envUrl;
+  }
+
+  // In Web Browser & AI Studio Preview: Always use relative path ('' -> /api/...)
+  // This routes requests to the active EBS Express server running on the same origin
+  return '';
+}
+
+/**
  * Push pending queue to Server API
  */
 export async function pushSyncQueueToServer(
-  businessId: string = 'biz_default',
+  businessId?: string,
   deviceId: string = getLocalDeviceIdentity()?.id || 'DEV-WEB-DEFAULT',
   token?: string
 ): Promise<{
   success: boolean;
   syncedCount: number;
   remainingCount: number;
+  results?: { localId: string; globalId?: string; status: 'synced' | 'failed'; error?: string }[];
   error?: string;
 }> {
-  if (!isSystemOnline()) {
-    return { success: false, syncedCount: 0, remainingCount: getOfflineQueue(businessId).length, error: 'Offline' };
+  const activeBizId =
+    businessId ||
+    (typeof window !== 'undefined' ? localStorage.getItem('ebs_business_id') || undefined : undefined);
+
+  if (!activeBizId || activeBizId.trim() === '' || activeBizId === 'biz_default' || activeBizId === 'Local') {
+    return { success: false, syncedCount: 0, remainingCount: 0, error: 'Valid business ID is required' };
   }
 
-  const queue = getOfflineQueue(businessId);
+  if (!isSystemOnline()) {
+    return { success: false, syncedCount: 0, remainingCount: getOfflineQueue(activeBizId).length, error: 'Offline' };
+  }
+
+  const queue = getOfflineQueue(activeBizId);
   if (queue.length === 0) {
-    return { success: true, syncedCount: 0, remainingCount: 0 };
+    return { success: true, syncedCount: 0, remainingCount: 0, results: [] };
   }
 
   try {
+    // Transition pending items to 'syncing' state
+    const queueWithSyncing = queue.map((item) => ({
+      ...item,
+      syncStatus: (item.syncStatus === 'synced' ? 'synced' : 'syncing') as SyncStatus,
+      attemptCount: (item.attemptCount || 0) + 1,
+      updatedAt: new Date().toISOString()
+    }));
+    saveOfflineQueue(activeBizId, queueWithSyncing);
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'x-device-id': deviceId,
-      'x-business-id': businessId
+      'x-business-id': activeBizId
     };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const activeToken = token || (typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined);
+    if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
-    const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+    const baseUrl = getApiBaseUrl();
     const res = await fetch(`${baseUrl}/api/sync/push`, {
       method: 'POST',
       headers,
@@ -194,22 +252,47 @@ export async function pushSyncQueueToServer(
     const successfulLocalIds = new Set(
       data.results?.filter((r: any) => r.status === 'synced').map((r: any) => r.localId)
     );
+    const failedMap = new Map<string, string>(
+      data.results?.filter((r: any) => r.status === 'failed').map((r: any) => [r.localId, r.error || 'Failed'])
+    );
 
-    // Keep only failed items in queue
-    const remainingQueue = queue.filter(item => !successfulLocalIds.has(item.localId));
-    saveOfflineQueue(businessId, remainingQueue);
+    // Keep only non-synced items in queue with updated failure status
+    const remainingQueue = queue
+      .filter(item => !successfulLocalIds.has(item.localId))
+      .map(item => {
+        if (failedMap.has(item.localId)) {
+          return {
+            ...item,
+            syncStatus: 'failed' as const,
+            lastError: failedMap.get(item.localId),
+            updatedAt: new Date().toISOString()
+          };
+        }
+        return item;
+      });
+    saveOfflineQueue(activeBizId, remainingQueue);
 
     return {
       success: true,
       syncedCount: successfulLocalIds.size,
-      remainingCount: remainingQueue.length
+      remainingCount: remainingQueue.length,
+      results: data.results || []
     };
   } catch (err: any) {
     console.warn('[Sync Engine] Push failed:', err?.message);
+    // Revert 'syncing' items back to 'pending' so next sync cycle safely retries
+    const currentQueue = getOfflineQueue(activeBizId);
+    const revertedQueue = currentQueue.map((item) => ({
+      ...item,
+      syncStatus: (item.syncStatus === 'syncing' ? 'pending' : item.syncStatus) as SyncStatus,
+      updatedAt: new Date().toISOString()
+    }));
+    saveOfflineQueue(activeBizId, revertedQueue);
+
     return {
       success: false,
       syncedCount: 0,
-      remainingCount: queue.length,
+      remainingCount: revertedQueue.length,
       error: err?.message || 'Push sync failed'
     };
   }
@@ -219,22 +302,32 @@ export async function pushSyncQueueToServer(
  * Pull delta from server
  */
 export async function pullDeltaFromServer(
-  businessId: string,
-  deviceId: string,
+  businessId?: string,
+  deviceId: string = getLocalDeviceIdentity()?.id || 'DEV-WEB-DEFAULT',
   sinceTimestamp?: string,
   token?: string
 ): Promise<any> {
+  const activeBizId =
+    businessId ||
+    (typeof window !== 'undefined' ? localStorage.getItem('ebs_business_id') || undefined : undefined);
+
+  if (!activeBizId || activeBizId.trim() === '' || activeBizId === 'biz_default' || activeBizId === 'Local') {
+    return null;
+  }
+
   if (!isSystemOnline()) return null;
 
   try {
     const headers: Record<string, string> = {
       'x-device-id': deviceId,
-      'x-business-id': businessId
+      'x-business-id': activeBizId
     };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const activeToken = token || (typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined);
+    if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
     const query = sinceTimestamp ? `?since=${encodeURIComponent(sinceTimestamp)}` : '';
-    const res = await fetch(`/api/sync/pull${query}`, { headers });
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}/api/sync/pull${query}`, { headers });
     if (!res.ok) return null;
     return await res.json();
   } catch (e) {
@@ -242,3 +335,240 @@ export async function pullDeltaFromServer(
     return null;
   }
 }
+
+/**
+ * Fetch Boss Remote Live Overview from Server (/api/live/overview)
+ * - Guarantees strict business isolation
+ * - Non-blocking: returns null or safe object on network failure
+ * - Supports token authorization and device identity headers
+ */
+export async function fetchRemoteLiveOverview(
+  businessId?: string,
+  token?: string,
+  userRole?: string,
+  userId?: string
+): Promise<LiveOverviewResponse | null> {
+  const activeBizId =
+    businessId ||
+    (typeof window !== 'undefined' ? localStorage.getItem('ebs_business_id') || undefined : undefined);
+
+  if (!activeBizId || activeBizId.trim() === '' || activeBizId === 'biz_default' || activeBizId === 'Local') {
+    return {
+      businessId: '',
+      timestamp: new Date().toISOString(),
+      error: 'Business haijapatikana. Tafadhali hakikisha biashara halali imechaguliwa.',
+      businessNotFound: true,
+      metrics: {
+        salesRevenue: 0,
+        yesterdayRevenue: 0,
+        monthRevenue: 0,
+        grossProfit: 0,
+        expensesTotal: 0,
+        netProfit: 0,
+        cashTotal: 0,
+        mobileMoneyTotal: 0,
+        cardBankTotal: 0,
+        debtTotal: 0,
+        transactionsCount: 0,
+        yesterdayTransactionsCount: 0,
+        monthTransactionsCount: 0,
+        totalProducts: 0,
+        lowStockCount: 0,
+        outOfStockCount: 0,
+        totalCustomers: 0,
+        totalDebtsCount: 0,
+        totalDebtBalance: 0,
+        canViewProfit: false
+      },
+      activeDevicesCount: 0,
+      totalDevicesCount: 0,
+      devices: [],
+      recentSales: []
+    };
+  }
+
+  if (!isSystemOnline()) return null;
+
+  try {
+    const device = getLocalDeviceIdentity();
+    const deviceId = device?.id || 'DEV-WEB-DEFAULT';
+    const activeToken = token || (typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined);
+
+    const headers: Record<string, string> = {
+      'x-device-id': deviceId,
+      'x-business-id': activeBizId
+    };
+    if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
+
+    let activeRole = userRole;
+    let activeUserId = userId;
+    if (typeof window !== 'undefined') {
+      try {
+        const storedUser = localStorage.getItem('ebs_user');
+        if (storedUser) {
+          const parsed = JSON.parse(storedUser);
+          if (!activeRole) activeRole = parsed.role;
+          if (!activeUserId) activeUserId = parsed.id;
+        }
+      } catch {}
+    }
+    if (activeRole) headers['x-user-role'] = activeRole;
+    if (activeUserId) headers['x-user-id'] = activeUserId;
+
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}/api/live/overview`, { headers });
+    
+    if (!res.ok) {
+      if (res.status === 404 || res.status === 403) {
+        const errJson = await res.json().catch(() => ({}));
+        return {
+          businessId: activeBizId,
+          timestamp: new Date().toISOString(),
+          error: errJson.error || 'Biashara haijapatikana au huna idhini.',
+          businessNotFound: true,
+          metrics: {
+            salesRevenue: 0,
+            yesterdayRevenue: 0,
+            monthRevenue: 0,
+            grossProfit: 0,
+            expensesTotal: 0,
+            netProfit: 0,
+            cashTotal: 0,
+            mobileMoneyTotal: 0,
+            cardBankTotal: 0,
+            debtTotal: 0,
+            transactionsCount: 0,
+            yesterdayTransactionsCount: 0,
+            monthTransactionsCount: 0,
+            totalProducts: 0,
+            lowStockCount: 0,
+            outOfStockCount: 0,
+            totalCustomers: 0,
+            totalDebtsCount: 0,
+            totalDebtBalance: 0,
+            canViewProfit: false
+          },
+          activeDevicesCount: 0,
+          totalDevicesCount: 0,
+          devices: [],
+          recentSales: []
+        };
+      }
+      return null;
+    }
+
+    return await res.json();
+  } catch (err: any) {
+    console.warn('[Sync Engine] fetchRemoteLiveOverview warning:', err?.message || err);
+    return null;
+  }
+}
+
+/**
+ * Register or upsert the current device on the server idempotently
+ */
+export async function registerCurrentDeviceOnServer(
+  businessId?: string,
+  user?: { id?: string; name?: string; role?: string },
+  token?: string
+): Promise<boolean> {
+  const activeBizId =
+    businessId ||
+    (typeof window !== 'undefined' ? localStorage.getItem('ebs_business_id') || undefined : undefined);
+
+  if (!activeBizId || activeBizId.trim() === '' || activeBizId === 'biz_default' || activeBizId === 'Local') {
+    return false;
+  }
+
+  if (!isSystemOnline() || isSimulatedOffline()) {
+    return false;
+  }
+
+  try {
+    const device = getLocalDeviceIdentity();
+    const baseUrl = getApiBaseUrl();
+    const activeToken = token || (typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined);
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-business-id': activeBizId,
+      'x-device-id': device.id
+    };
+    if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
+    if (user?.role) headers['x-user-role'] = user.role;
+    if (user?.id) headers['x-user-id'] = user.id;
+
+    const res = await fetch(`${baseUrl}/api/devices/register`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        id: device.id,
+        name: device.name,
+        platform: device.platform,
+        assignedUserId: user?.id,
+        assignedUserName: user?.name ? `${user.name} (${user.role || 'staff'})` : undefined,
+        assignedRole: user?.role
+      })
+    });
+
+    return res.ok;
+  } catch (err) {
+    console.warn('[Sync Engine] Device auto-registration notice:', err);
+    return false;
+  }
+}
+
+/**
+ * Send lightweight device heartbeat
+ */
+export async function sendDeviceHeartbeat(
+  businessId?: string,
+  user?: { id?: string; name?: string; role?: string },
+  token?: string
+): Promise<boolean> {
+  const activeBizId =
+    businessId ||
+    (typeof window !== 'undefined' ? localStorage.getItem('ebs_business_id') || undefined : undefined);
+
+  if (!activeBizId || activeBizId.trim() === '' || activeBizId === 'biz_default' || activeBizId === 'Local') {
+    return false;
+  }
+
+  if (!isSystemOnline() || isSimulatedOffline()) {
+    return false;
+  }
+
+  try {
+    const device = getLocalDeviceIdentity();
+    const baseUrl = getApiBaseUrl();
+    const activeToken = token || (typeof window !== 'undefined' ? localStorage.getItem('ebs_session_token') || undefined : undefined);
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-business-id': activeBizId,
+      'x-device-id': device.id
+    };
+    if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
+    if (user?.role) headers['x-user-role'] = user.role;
+    if (user?.id) headers['x-user-id'] = user.id;
+
+    const res = await fetch(`${baseUrl}/api/devices/heartbeat`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        deviceId: device.id,
+        name: device.name,
+        platform: device.platform,
+        assignedUserId: user?.id,
+        assignedUserName: user?.name ? `${user.name} (${user.role || 'staff'})` : undefined,
+        assignedRole: user?.role
+      })
+    });
+
+    return res.ok;
+  } catch (err) {
+    // Non-blocking
+    return false;
+  }
+}
+

@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { Product, BarVarianceRecord } from '../types';
 import { formatTZS, formatDateTime } from '../utils/formatters';
 import { isProductActive } from '../utils/productUtils';
+import { canUserAdjustStock } from '../utils/permissions';
 import {
   Beer,
   Wine,
@@ -58,6 +59,11 @@ export const BarModeView: React.FC = () => {
     e.preventDefault();
     if (!selectedAuditProduct) return;
 
+    if (!canUserAdjustStock(currentUser)) {
+      alert('Huna idhini ya kurekebisha stoo moja kwa moja (Permission Denied). Wasiliana na Mmiliki au Meneja.');
+      return;
+    }
+
     const countedBottles = parseFloat(physicalBottles) || 0;
     const countedMl = parseFloat(physicalOpenBottleMl) || 0;
 
@@ -104,6 +110,11 @@ export const BarModeView: React.FC = () => {
   const handleRecordSpillage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!spillProduct) return;
+
+    if (!canUserAdjustStock(currentUser)) {
+      alert('Huna idhini ya kurekebisha stoo moja kwa moja (Permission Denied). Wasiliana na Mmiliki au Meneja.');
+      return;
+    }
 
     const ml = parseFloat(spillMl) || 0;
     if (ml <= 0) return;

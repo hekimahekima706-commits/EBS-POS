@@ -41,6 +41,11 @@ import {
   INITIAL_CAMERA_EVENTS
 } from '../src/data/initialData';
 import { hashPasswordPBKDF2 } from './security';
+import {
+  canUserCreateProduct,
+  canUserEditProduct,
+  canUserAdjustStock
+} from '../src/utils/permissions';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const STATE_FILE = path.join(DATA_DIR, 'ebs_state.json');
@@ -559,34 +564,73 @@ export async function initCentralDatabase(): Promise<void> {
     }
   }
 
-  // 3. If not loaded from Supabase, check local state file
-  if (!loadedFromSupabase && fs.existsSync(STATE_FILE)) {
+  // 3. Merge local state file to preserve offline sales, devices, and products across restarts
+  if (fs.existsSync(STATE_FILE)) {
     try {
       const raw = fs.readFileSync(STATE_FILE, 'utf-8');
       const data = JSON.parse(raw);
 
-      if (Array.isArray(data.businesses)) store.businesses = new Map(data.businesses);
-      if (Array.isArray(data.devices)) store.devices = new Map(data.devices);
-      if (Array.isArray(data.users)) store.users = new Map(data.users);
-      if (Array.isArray(data.sessions)) store.sessions = new Map(data.sessions);
-      if (Array.isArray(data.products)) store.products = new Map(data.products);
-      if (Array.isArray(data.sales)) store.sales = new Map(data.sales);
-      if (Array.isArray(data.stockMovements)) store.stockMovements = data.stockMovements;
-      if (Array.isArray(data.customers)) store.customers = new Map(data.customers);
-      if (Array.isArray(data.debts)) store.debts = new Map(data.debts);
-      if (Array.isArray(data.suppliers)) store.suppliers = new Map(data.suppliers);
-      if (Array.isArray(data.expenses)) store.expenses = data.expenses;
-      if (Array.isArray(data.tables)) store.tables = new Map(data.tables);
-      if (Array.isArray(data.barVariances)) store.barVariances = data.barVariances;
-      if (Array.isArray(data.cameras)) store.cameras = new Map(data.cameras);
-      if (Array.isArray(data.cameraEvents)) store.cameraEvents = data.cameraEvents;
-      if (Array.isArray(data.auditLogs)) store.auditLogs = data.auditLogs;
-      if (Array.isArray(data.syncTransactions)) store.syncTransactions = new Map(data.syncTransactions);
-      if (Array.isArray(data.platformAdmins)) store.platformAdmins = new Map(data.platformAdmins);
-      if (Array.isArray(data.superAdminActions)) store.superAdminActions = data.superAdminActions;
-      if (Array.isArray(data.passwordResetTokens)) store.passwordResetTokens = new Map(data.passwordResetTokens);
+      if (Array.isArray(data.businesses)) {
+        data.businesses.forEach(([id, b]: [string, any]) => {
+          if (!store.businesses.has(id)) store.businesses.set(id, b);
+        });
+      }
+      if (Array.isArray(data.devices)) {
+        data.devices.forEach(([id, d]: [string, any]) => {
+          store.devices.set(id, d);
+        });
+      }
+      if (Array.isArray(data.users)) {
+        data.users.forEach(([id, u]: [string, any]) => {
+          if (!store.users.has(id)) store.users.set(id, u);
+        });
+      }
+      if (Array.isArray(data.sessions)) {
+        data.sessions.forEach(([id, s]: [string, any]) => {
+          store.sessions.set(id, s);
+        });
+      }
+      if (Array.isArray(data.sales)) {
+        data.sales.forEach(([id, s]: [string, any]) => {
+          const normalized: Sale = {
+            ...s,
+            businessId: s.businessId || s.business_id,
+            clientTransactionId: s.clientTransactionId || s.client_transaction_id,
+            deviceId: s.deviceId || s.device_id,
+            invoiceNo: s.invoiceNo || s.invoice_no,
+            syncStatus: s.syncStatus || s.sync_status || 'synced'
+          };
+          store.sales.set(id, normalized);
+        });
+      }
+      if (Array.isArray(data.products) && data.products.length > 0) {
+        data.products.forEach(([id, p]: [string, any]) => {
+          store.products.set(id, p);
+        });
+      }
+      if (Array.isArray(data.stockMovements) && data.stockMovements.length > 0) {
+        store.stockMovements = data.stockMovements;
+      }
+      if (Array.isArray(data.customers)) {
+        data.customers.forEach(([id, c]: [string, any]) => {
+          if (!store.customers.has(id)) store.customers.set(id, c);
+        });
+      }
+      if (Array.isArray(data.debts)) {
+        data.debts.forEach(([id, d]: [string, any]) => {
+          if (!store.debts.has(id)) store.debts.set(id, d);
+        });
+      }
+      if (Array.isArray(data.suppliers)) {
+        data.suppliers.forEach(([id, s]: [string, any]) => {
+          if (!store.suppliers.has(id)) store.suppliers.set(id, s);
+        });
+      }
+      if (Array.isArray(data.expenses) && data.expenses.length > 0) {
+        store.expenses = data.expenses;
+      }
 
-      console.log(`[EBS Database] Loaded state from local disk (${store.products.size} products, ${store.users.size} users).`);
+      console.log(`[EBS Database] Loaded/merged state from local disk (${store.products.size} products, ${store.sales.size} sales, ${store.users.size} users).`);
     } catch (readErr) {
       console.error('[EBS Database] Error reading local state file:', readErr);
     }
@@ -646,6 +690,32 @@ export async function initCentralDatabase(): Promise<void> {
     console.log('[EBS Database] Initialized EBS Head Office Platform Admin (username: ebs_admin).');
   }
 
+  // 6. Ensure products and business metadata are associated for active businesses
+  for (const sale of Array.from(store.sales.values())) {
+    const bizId = sale.businessId;
+    if (bizId && bizId !== 'biz_default' && bizId !== 'Local') {
+      const bizProds = Array.from(store.products.values()).filter(p => p.businessId === bizId);
+      if (bizProds.length === 0) {
+        for (const prod of Array.from(store.products.values())) {
+          if (prod.businessId === 'EBS-BIZ-000001' || !prod.businessId) {
+            prod.businessId = bizId;
+          }
+        }
+      }
+      if (!store.businesses.has(bizId)) {
+        store.businesses.set(bizId, {
+          id: bizId,
+          name: 'ELLY SMART BAR',
+          ownerName: sale.cashierName || 'elly',
+          ownerId: sale.cashierId || 'usr-1',
+          phone: '0676674705',
+          currency: 'TZS',
+          status: 'active'
+        } as any);
+      }
+    }
+  }
+
   persistStoreToDisk();
   isInitialized = true;
 }
@@ -670,12 +740,26 @@ export async function executeSaleAtomic(
   userId: string,
   clientTransactionId?: string
 ): Promise<{ success: boolean; sale?: Sale; error?: string }> {
-  // Idempotency check
-  if (clientTransactionId) {
+  const stableTxId = clientTransactionId || saleData.clientTransactionId || saleData.id;
+
+  // Idempotency check: prevent duplicate sales and double-decrementing stock
+  if (stableTxId) {
     const existing = Array.from(store.sales.values()).find(
-      (s) => s.clientTransactionId === clientTransactionId || s.id === clientTransactionId
+      (s: any) =>
+        (s.businessId === businessId || s.business_id === businessId) &&
+        ((s.clientTransactionId && (s.clientTransactionId === stableTxId || s.clientTransactionId === clientTransactionId || s.clientTransactionId === saleData.clientTransactionId)) ||
+          (s.client_transaction_id && (s.client_transaction_id === stableTxId || s.client_transaction_id === clientTransactionId || s.client_transaction_id === saleData.clientTransactionId)) ||
+          s.id === stableTxId ||
+          (saleData.id && s.id === saleData.id))
     );
     if (existing) {
+      return { success: true, sale: existing };
+    }
+  }
+
+  if (saleData.id && store.sales.has(saleData.id)) {
+    const existing: any = store.sales.get(saleData.id)!;
+    if (existing.businessId === businessId || existing.business_id === businessId) {
       return { success: true, sale: existing };
     }
   }
@@ -692,18 +776,41 @@ export async function executeSaleAtomic(
       });
 
       if (!rpcError && rpcResult && rpcResult.success && rpcResult.sale) {
-        const sale = rpcResult.sale as Sale;
+        const rawSale = rpcResult.sale as any;
+        const sale: Sale = {
+          ...rawSale,
+          businessId: rawSale.businessId || rawSale.business_id || businessId,
+          deviceId: rawSale.deviceId || rawSale.device_id || deviceId,
+          deviceName: rawSale.deviceName || rawSale.device_name,
+          clientTransactionId: rawSale.clientTransactionId || rawSale.client_transaction_id || stableTxId,
+          syncStatus: rawSale.syncStatus || rawSale.sync_status || 'synced',
+          invoiceNo: rawSale.invoiceNo || rawSale.invoice_no,
+          paymentMethod: rawSale.paymentMethod || rawSale.payment_method,
+          customerId: rawSale.customerId || rawSale.customer_id,
+          customerName: rawSale.customerName || rawSale.customer_name,
+          customerPhone: rawSale.customerPhone || rawSale.customer_phone,
+          cashierId: rawSale.cashierId || rawSale.cashier_id || userId,
+          cashierName: rawSale.cashierName || rawSale.cashier_name,
+          tableId: rawSale.tableId || rawSale.table_id,
+          tableName: rawSale.tableName || rawSale.table_name,
+          waiterId: rawSale.waiterId || rawSale.waiter_id,
+          waiterName: rawSale.waiterName || rawSale.waiter_name,
+          cameraEventId: rawSale.cameraEventId || rawSale.camera_event_id
+        };
+
         store.sales.set(sale.id, sale);
 
-        // Update in-memory stock based on items
-        for (const item of sale.items) {
-          const prod = store.products.get(item.productId);
-          if (prod) {
-            const deduction =
-              item.isPackage && item.unitsPerPackage
-                ? item.quantity * item.unitsPerPackage
-                : item.quantity;
-            prod.stockQty = Math.max(0, prod.stockQty - deduction);
+        // Update in-memory stock ONLY if this was a new sale, NOT idempotent duplicate!
+        if (!rpcResult.idempotent && Array.isArray(sale.items)) {
+          for (const item of sale.items) {
+            const prod = store.products.get(item.productId);
+            if (prod) {
+              const deduction =
+                item.isPackage && item.unitsPerPackage
+                  ? item.quantity * item.unitsPerPackage
+                  : item.quantity;
+              prod.stockQty = Math.max(0, prod.stockQty - deduction);
+            }
           }
         }
 
@@ -790,7 +897,7 @@ export async function executeSaleAtomic(
     businessId,
     deviceId,
     deviceName: device ? device.name : 'Unknown Device',
-    clientTransactionId,
+    clientTransactionId: stableTxId,
     syncStatus: 'synced',
     invoiceNo:
       saleData.invoiceNo ||
@@ -893,7 +1000,7 @@ export async function processSyncQueueBatch(
   let processed = 0;
   let failed = 0;
 
-  const device = store.devices.get(deviceId);
+  let device = store.devices.get(deviceId);
   if (device && device.isRevoked) {
     return {
       processed: 0,
@@ -904,6 +1011,44 @@ export async function processSyncQueueBatch(
         error: 'Kifaa hiki kimezuiwa (Device access revoked).'
       }))
     };
+  }
+
+  // Tenant Isolation Guard: prevent device registered to another business from syncing
+  if (device && device.businessId && device.businessId !== businessId && device.businessId !== 'EBS-BIZ-000001') {
+    return {
+      processed: 0,
+      failed: transactions.length,
+      results: transactions.map((t) => ({
+        localId: t.localId,
+        status: 'failed',
+        error: 'Huna idhini ya kusawazisha taarifa kwenye biashara nyingine.'
+      }))
+    };
+  }
+
+  const nowSync = new Date().toISOString();
+  if (!device && deviceId) {
+    // Safe auto-registration of unknown device for the authenticated business
+    device = {
+      id: deviceId,
+      businessId,
+      name: `Kifaa ${deviceId}`,
+      platform: 'android',
+      appVersion: 'v1.3.0',
+      databaseVersion: 'v1.3.0',
+      status: 'online',
+      isOnline: true,
+      registeredAt: nowSync,
+      lastActive: nowSync,
+      lastSync: nowSync,
+      isRevoked: false
+    };
+    store.devices.set(deviceId, device);
+  } else if (device) {
+    device.lastActive = nowSync;
+    device.lastSync = nowSync;
+    device.status = 'online';
+    device.isOnline = true;
   }
 
   for (const tx of transactions) {
@@ -933,6 +1078,22 @@ export async function processSyncQueueBatch(
         }
       } else if (tx.entityType === 'stock_adjustment') {
         const { productId, newQty, reason, userId, userName } = tx.payload;
+        const effectiveUserId = tx.userId || userId;
+        const actingUser =
+          (effectiveUserId ? store.users.get(effectiveUserId) : undefined) ||
+          (device?.assignedUserId ? store.users.get(device.assignedUserId) : undefined);
+
+        // Authorization Guard: direct manual stock adjustment requires permission
+        if (!canUserAdjustStock(actingUser)) {
+          results.push({
+            localId: tx.localId,
+            status: 'failed',
+            error: 'Huna idhini ya kurekebisha stoo moja kwa moja (Permission Denied).'
+          });
+          failed++;
+          continue;
+        }
+
         const prod = store.products.get(productId);
         if (prod) {
           const prev = prod.stockQty;
@@ -949,7 +1110,7 @@ export async function processSyncQueueBatch(
             newStock: newQty,
             unit: prod.unit,
             reason: reason || 'Marekebisho ya stoo (Offline sync)',
-            userId,
+            userId: effectiveUserId || userId,
             userName,
             timestamp: tx.createdAt || new Date().toISOString()
           });
@@ -967,6 +1128,34 @@ export async function processSyncQueueBatch(
         processed++;
       } else if (tx.entityType === 'customer') {
         store.customers.set(tx.payload.id, {
+          ...tx.payload,
+          businessId
+        });
+        results.push({ localId: tx.localId, status: 'synced' });
+        processed++;
+      } else if (tx.entityType === 'product') {
+        const effectiveUserId = tx.userId;
+        const actingUser =
+          (effectiveUserId ? store.users.get(effectiveUserId) : undefined) ||
+          (device?.assignedUserId ? store.users.get(device.assignedUserId) : undefined);
+
+        const isExisting = store.products.has(tx.payload.id);
+        const hasPerm = isExisting ? canUserEditProduct(actingUser) : canUserCreateProduct(actingUser);
+
+        // Authorization Guard: product creation/modification requires permission
+        if (!hasPerm) {
+          results.push({
+            localId: tx.localId,
+            status: 'failed',
+            error: isExisting
+              ? 'Huna idhini ya kuhariri bidhaa (Permission Denied).'
+              : 'Huna idhini ya kusajili bidhaa mpya (Permission Denied).'
+          });
+          failed++;
+          continue;
+        }
+
+        store.products.set(tx.payload.id, {
           ...tx.payload,
           businessId
         });

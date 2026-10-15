@@ -62,6 +62,12 @@ export const ReportsView: React.FC = () => {
   const netProfit = totalGrossProfit - totalExpensesAmt;
   const avgBasket = filteredSales.length > 0 ? Math.round(totalRevenue / filteredSales.length) : 0;
 
+  // Privileges: Owner and Boss can ALWAYS view profit (unhide blur)
+  // Hide profit margins ONLY for Cashier, Waiter, and Storekeeper
+  const isOwnerOrBoss = currentUser?.role === 'owner' || currentUser?.role === 'boss' || currentUser?.role === 'super_admin' || currentUser?.role === 'admin';
+  const isRestrictedRole = currentUser?.role === 'cashier' || currentUser?.role === 'waiter' || currentUser?.role === 'storekeeper';
+  const canSeeProfit = isOwnerOrBoss ? true : isRestrictedRole ? false : Boolean(currentUser?.canViewProfit);
+
   // Breakdown by Cashier / Staff
   const staffSalesMap: Record<string, { name: string; count: number; total: number; profit: number }> = {};
   filteredSales.forEach((s) => {
@@ -198,10 +204,10 @@ export const ReportsView: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
           <div className="text-xs text-slate-500 font-semibold">Faida ya Mauzo (Gross Margin)</div>
           <div className="text-xl md:text-2xl font-black text-teal-600 mt-1">
-            {currentUser?.canViewProfit ? formatTZS(totalGrossProfit) : '••••••'}
+            {canSeeProfit ? formatTZS(totalGrossProfit) : '••••••'}
           </div>
           <div className="text-[11px] text-slate-400 mt-0.5">
-            {totalRevenue > 0 && currentUser?.canViewProfit
+            {totalRevenue > 0 && canSeeProfit
               ? `${((totalGrossProfit / totalRevenue) * 100).toFixed(1)}% ya mauzo yote`
               : 'Margin ratio'}
           </div>
@@ -218,7 +224,7 @@ export const ReportsView: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
           <div className="text-xs text-slate-500 font-semibold">Faida Halisi (Net Profit)</div>
           <div className="text-xl md:text-2xl font-black text-emerald-600 mt-1">
-            {currentUser?.canViewProfit ? formatTZS(netProfit) : '••••••'}
+            {canSeeProfit ? formatTZS(netProfit) : '••••••'}
           </div>
           <div className="text-[11px] text-slate-400 mt-0.5">Baada ya kutoa gharama zote</div>
         </div>
@@ -251,7 +257,7 @@ export const ReportsView: React.FC = () => {
 
                 <div className="text-right">
                   <div className="font-black text-slate-900 dark:text-white">{formatTZS(st.total)}</div>
-                  {currentUser?.canViewProfit && (
+                  {canSeeProfit && (
                     <div className="text-[10px] text-emerald-600 font-semibold">
                       Faida: +{formatTZS(st.profit)}
                     </div>

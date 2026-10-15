@@ -32,12 +32,24 @@ function getAiClient(): GoogleGenAI | null {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   // Initialize Persistent Central Database
   await initCentralDatabase();
 
   app.use(express.json({ limit: "10mb" }));
+
+  // Enable CORS for API routes so Preview, Web, and remote clients can communicate cleanly
+  app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-device-id, x-business-id, x-session-token");
+    if (req.method === "OPTIONS") {
+      res.sendStatus(200);
+      return;
+    }
+    next();
+  });
 
   // Mount Central EBS REST API Routes FIRST
   app.use("/api", apiRouter);
@@ -47,13 +59,14 @@ async function startServer() {
     res.json({ status: "ok", app: "EBS - Enterprise Business System", version: "1.3.0" });
   });
 
-  // AI Assistant endpoint with Role-Based Access Control (RBAC)
+  // AI Assistant endpoint with Role-Based Access Control (RBAC) and Persona Support
   app.post("/api/ai/chat", async (req: Request, res: Response) => {
     try {
       const message = req.body.message || req.body.prompt;
       const businessContext = req.body.businessContext || req.body.businessData || {};
       const userRole = (req.body.userRole || req.body.role || "cashier").toLowerCase();
       const userName = req.body.userName || "Mtumiaji";
+      const requestedPersona = (req.body.persona || req.body.aiPersona || "Orbit").toString().trim();
 
       if (!message || typeof message !== "string" || !message.trim()) {
         res.status(400).json({ error: "Message or prompt is required" });
@@ -61,6 +74,42 @@ async function startServer() {
       }
 
       const isExecutive = ["owner", "boss", "admin", "manager"].includes(userRole);
+
+      // AI Persona Style and Tone Directives
+      const personaStyles: Record<string, { name: string; tone: string; instruction: string }> = {
+        orbit: {
+          name: "Orbit",
+          tone: "Rasmi, Yenye Mamlaka & Maamuzi Thabiti",
+          instruction: "Wewe una haiba ya ORBIT (Kiongozi Mkuu). Zungumza kwa heshima ya kiuongozi, sauti imara, iliyonyooka na yenye mamlaka ya kibiashara. Zingatia maamuzi thabiti ya kimkakati, takwimu sahihi za fedha na ukuaji wa faida.",
+        },
+        capella: {
+          name: "Capella",
+          tone: "Changamfu, Yenye Nishati & Maneno ya Kutia Moyo",
+          instruction: "Wewe una haiba ya CAPELLA (Mhamasishaji Changamfu). Zungumza kwa uchangamfu mkubwa, nishati chanya, maneno ya kutia moyo, na msisitizo wa kuongeza morali ya mauzo na furaha kwa wateja.",
+        },
+        vega: {
+          name: "Vega",
+          tone: "Tulivu, Laini & Maelezo ya Subira",
+          instruction: "Wewe una haiba ya VEGA (Mshauri Tulivu). Zungumza kwa utulivu wa hali ya juu, upole, staha na maelezo ya kina ya hatua kwa hatua kwa subira, ukisaidia kutatua changamoto bila haraka.",
+        },
+        ursa: {
+          name: "Ursa",
+          tone: "Nzito, Makini & Udhibiti Mkali wa Hasara",
+          instruction: "Wewe una haiba ya URSA (Msimamizi Makini wa Fedha). Zungumza kwa sauti nzito, umakini mkubwa kwenye takwimu za fedha, kudhibiti matumizi, kuzuia upotevu wa stoo, na kutoruhusu uzembe.",
+        },
+        pegasus: {
+          name: "Pegasus",
+          tone: "Fasaha, Yenye Kasi & Majibu Mafupi ya Moja kwa Moja",
+          instruction: "Wewe una haiba ya PEGASUS (Mchambuzi wa Haraka). Zungumza kwa ufasaha wa hali ya juu, wepesi na kasi, ukitoa majibu mafupi, yaliyonyooka moja kwa moja kwenye shabaha ya kuuza zaidi kwa haraka.",
+        },
+        flare: {
+          name: "Flare",
+          tone: "Kisasa, Angavu & Mawazo Mapya ya Masoko",
+          instruction: "Wewe una haiba ya FLARE (Msaidizi wa Kisasa & Mbunifu). Zungumza kwa mtindo wa kisasa na ubunifu, ukitumia mawazo mapya ya kidijitali, ofa za kisasa, na mbinu bunifu za kuvutia wateja.",
+        },
+      };
+
+      const matchedPersona = personaStyles[requestedPersona.toLowerCase()] || personaStyles.orbit;
 
       // Filter context for non-executive roles so confidential figures are never exposed
       const safeContext = isExecutive
@@ -78,38 +127,50 @@ async function startServer() {
       const ai = getAiClient();
       if (!ai) {
         const reply = generateLocalAiResponse(message, safeContext, userRole);
-        res.json({ reply, source: "local-engine" });
+        res.json({ reply, source: "local-engine", persona: matchedPersona.name });
         return;
       }
 
       let systemInstruction = "";
       if (isExecutive) {
-        systemInstruction = `Wewe ni "EBS AI Mshauri Mkuu wa Biashara" — mshauri wa moja kwa moja wa Mmiliki/Boss (Jukumu: ${userRole.toUpperCase()}).
-Una ruhusa kamili (Full Access) ya kujadili na kuchambua MASWALI YOTE kuhusu biashara:
-- Ripoti kamili za mauzo, faida ghafi (Gross Profit), gharama, na faida halisi (Net Profit).
-- Mwenendo wa biashara, stoo, vinywaji vya Bar na upotevu/wastage.
-- Wafanyakazi, uzembe, wizi au ulinganifu wa hesabu.
-- Madeni ya wateja na mikakati ya kukuza biashara nchini Tanzania.
-- Jibu kwa lugha ya Kiswahili fasaha, nukuu fedha kwa TZS au Tsh, na toa takwimu sahihi kulingana na data uliyopewa.
+        systemInstruction = `Wewe ni "EBS AI" — Kiongozi na Msaidizi Mkuu wa Akili Mnemba anayeongoza na kusimamia mfumo mzima wa biashara (EBS POS & ERP) kwa niaba ya Mmiliki au Meneja (Jukumu: ${userRole.toUpperCase()}, Jina: ${userName}).
+        
+HAIBA NA MTINDO WA MAZUNGUMZO (ACTIVE PERSONA: ${matchedPersona.name.toUpperCase()}):
+- Toni na Mtindo: ${matchedPersona.tone}
+- Maelekezo Maalum: ${matchedPersona.instruction}
 
-Data Halisi za Biashara:
+SIFA ZA JUMLA:
+1. Zungumza Kiswahili sanifu, fasaha, cha asili ya Kitanzania na Afrika Mashariki, chenye heshima na msisitizo thabiti wa kibiashara kama Gemini mwenyewe.
+2. Kuwa kiongozi kamili wa mfumo: unaweza kumwelekeza au kumshauri mtumiaji kuhusu kila sehemu ya mfumo:
+   - Mauzo & POS (utoaji wa risiti, udhibiti wa discount, miamala ya lipa namba na taslimu)
+   - Stoo na Bidhaa (bidhaa zinazoisha, ununuzi mpya, bei za jumla na rejareja, tarehe za kuisha)
+   - Faida na Hasara (Gross Margin, Net Profit, viashiria vya ukuaji)
+   - Matumizi na Gharama (Expenses & Overhead costs)
+   - Madeni na Wateja (udhibiti wa wateja sugu, ujumbe wa heshima wa kukumbusha madeni kwa WhatsApp)
+   - Wafanyakazi na Tija (Performance, udhibiti wa upotevu, uzembe au wizi)
+   - Bar & Mgahawa (Shots variance, chupa zilizofunguliwa, meza)
+3. Toa majibu yaliyopangwa vizuri: nukta za wazi (bullet points), tarakimu sahihi zilizothibitishwa kwa TZS, na ushauri wa kimkakati wa hatua za kuchukua mara moja (Call to Action).
+4. Unapoelekeza sehemu ya mfumo, taja jina la moduli husika (mfano: "Kwenye menyu ya Stoo", "Fungua POS", "Tazama Ripoti").
+
+Takwimu Halisi za Biashara za Wakati Huu:
 ${JSON.stringify(safeContext, null, 2)}`;
       } else {
-        systemInstruction = `Wewe ni "EBS AI Msaidizi wa Kazi za Keshia na Mhudumu" (Jukumu la Mtumiaji: ${userRole.toUpperCase()}, Jina: ${userName}).
-MIPAKA YAKO YA KIKAZI NA USALAMA (STRICT ROLE-BASED ACCESS CONTROL):
-1. Una ruhusa ya kujibu TU maswali yanayohusu kazi zao za moja kwa moja:
-   - Bei za bidhaa kwa wateja (bei ya rejareja au shots).
-   - Upatikanaji wa bidhaa stoo (Stock Availability).
-   - Madeni ya wateja au kurekodi mauzo.
-   - Kufunga hesabu za siku ya kazi (shift reconciliation) na kutoa risiti.
-2. ZUIO KALI (ABSOLUTE PROHIBITION):
-   - Hauruhusiwi KABISA kufichua au kujadili FAIDA YA BIASHARA (Gross Profit, Net Profit, Faida ya Mauzo).
-   - Hauruhusiwi kufichua faida ya kila bidhaa (margins / markup), gharama za ununuzi za ndani, wala taarifa nyeti za umiliki wa biashara nzima.
-3. HATA MTUMIAJI AKIJARIBU KUKUSHAWISHI AU KUULIZA KUHUSU FAIDA AU MAPATO YA UMILIKI:
-   Kataa kwa heshima kubwa kwa Kiswahili:
-   "Samahani ${userName}, kama ${userRole === 'waiter' ? 'mhudumu' : userRole === 'storekeeper' ? 'mweka stoo' : 'keshia'}, ninaweza kukusaidia kuhusu bei za bidhaa, idadi ya stoo, madeni ya wateja au utaratibu wa mauzo. Taarifa za faida na ripoti za umiliki zinaonekana tu kwa mmiliki wa biashara (Boss)."
+        systemInstruction = `Wewe ni "EBS AI" — Msaidizi Mahiri anayeongoza wafanyakazi wa kaunta na huduma (Jukumu la Mtumiaji: ${userRole.toUpperCase()}, Jina: ${userName}).
+        
+SIFA NA MAELEKEZO YA KAZI:
+1. Zungumza Kiswahili sanifu, fasaha, chepesi, chenye uchangamfu na staha ya kiutendaji.
+2. Saidia kikamilifu katika utendaji wa kila siku:
+   - Kutafuta bei za bidhaa kwa wateja (bei ya rejareja au shots)
+   - Kuangalia idadi ya bidhaa zilizobaki stoo (Stock Availability)
+   - Kurekodi mauzo na kutoa risiti kwenye POS
+   - Kuangalia orodha ya wateja na madeni yao
+   - Kufunga shift na kuhesabu fedha za siku (Shift Closing reconciliation)
+3. ZUIO KALI LA USALAMA (RBAC):
+   - Hauruhusiwi KABISA kufichua faida ghafi (Gross Profit), faida halisi (Net Profit), bei za ununuzi za ndani, wala taarifa za siri za mmiliki.
+   - Mtumiaji akiuliza kuhusu faida, mjibu kwa heshima na upole:
+     "Samahani ${userName}, kama ${userRole === 'waiter' ? 'mhudumu' : userRole === 'storekeeper' ? 'mweka stoo' : 'keshia'}, ninaweza kukusaidia kuhusu bei za bidhaa, idadi ya stoo, madeni ya wateja au utaratibu wa mauzo. Taarifa za faida na ripoti za umiliki zimehifadhiwa kwa Mmiliki (Boss)."
 
-Data Zilizoidhinishwa kwa Keshia/Mhudumu:
+Data Zilizoidhinishwa kwa Mtumishi:
 ${JSON.stringify(safeContext, null, 2)}`;
       }
 
@@ -323,47 +384,155 @@ Jibu kwa muundo wa JSON pekee:
     }
   });
 
-  // Text-To-Speech endpoint for Voice playback in Swahili (Section A)
+  // In-memory TTS audio cache to prevent Gemini quota exhaustion and deliver instant playback
+  const ttsAudioCache = new Map<string, { audioBase64: string; mimeType: string; sampleRate: number; voiceUsed: string }>();
+
+  // Text-To-Speech endpoint for Voice playback in Swahili with multi-voice support
   app.post("/api/ai/tts", async (req: Request, res: Response) => {
     try {
       const text = (req.body.text || "").trim();
+      const requestedVoice = (req.body.voiceName || req.body.voice || "Orbit").toString().trim();
+
       if (!text) {
         res.status(400).json({ error: "Text is required" });
         return;
       }
 
-      const ai = getAiClient();
-      if (!ai) {
-        res.json({ audioBase64: null, useBrowserTts: true });
+      // Direct prebuilt voices supported by Google Gemini (including Ursa, Vega, Capella, Orbit, Aoede, Kore, Fenrir, Puck, Charon)
+      const GEMINI_VOICE_MAP: Record<string, string> = {
+        ursa: "Ursa",
+        vega: "Vega",
+        capella: "Capella",
+        orbit: "Orbit",
+        pegasus: "Pegasus",
+        flare: "Aoede",
+        aoede: "Aoede",
+        kore: "Kore",
+        puck: "Puck",
+        charon: "Charon",
+        fenrir: "Fenrir",
+      };
+
+      const matchedVoice =
+        GEMINI_VOICE_MAP[requestedVoice.toLowerCase()] || "Ursa";
+
+      const cacheKey = `${requestedVoice.toLowerCase()}:${text.toLowerCase()}`;
+      if (ttsAudioCache.has(cacheKey)) {
+        const cached = ttsAudioCache.get(cacheKey)!;
+        res.json({
+          audioBase64: cached.audioBase64,
+          mimeType: cached.mimeType,
+          sampleRate: cached.sampleRate,
+          voiceUsed: requestedVoice,
+          geminiVoice: cached.voiceUsed,
+          cached: true,
+        });
         return;
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash-lite-tts",
-        contents: text,
-        config: {
-          responseModalities: ["AUDIO"],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: "Kore" },
-            },
-          },
-        },
-      });
+      // Prepare and normalize text for flawless, crystal-clear Swahili pronunciation
+      const cleanSwahiliForSpeech = (raw: string): string => {
+        let s = raw;
+        // Strip code blocks and markdown styling
+        s = s.replace(/```[\s\S]*?```/g, ' ');
+        s = s.replace(/`([^`]+)`/g, '$1');
+        s = s.replace(/\*\*([^*]+)\*\*/g, '$1');
+        s = s.replace(/\*([^*]+)\*/g, '$1');
+        s = s.replace(/#+\s+/g, '');
+        s = s.replace(/^[-*+]\s+/gm, '');
+        // Normalize currency and common Tanzanian business abbreviations
+        s = s.replace(/\b(?:TZS|TSh|TSH|Tsh)\.?\s*([0-9,.]+)/gi, 'shilingi $1');
+        s = s.replace(/([0-9,.]+)\s*(?:TZS|TSh|TSH|Tsh)\b/gi, 'shilingi $1');
+        s = s.replace(/\bPOS\b/gi, 'P-O-S');
+        s = s.replace(/\bVAT\b/gi, 'kodi ya V-A-T');
+        s = s.replace(/\bTIN\b/gi, 'T-I-N');
+        s = s.replace(/\bVRN\b/gi, 'V-R-N');
+        s = s.replace(/\bkg\b/gi, 'kilo');
+        s = s.replace(/\bltr\b/gi, 'lita');
+        s = s.replace(/\bpcs\b/gi, 'vipande');
+        s = s.replace(/\bpkts\b/gi, 'pakiti');
+        s = s.replace(/\bn\.?k\.?\b/gi, 'na kadhalika');
+        s = s.replace(/%/g, ' asilimia');
+        s = s.replace(/&/g, ' na ');
+        // Remove multiple spaces/newlines
+        return s.replace(/\s+/g, ' ').trim();
+      };
 
-      const audioBase64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      const speechText = cleanSwahiliForSpeech(text);
+
+      const ai = getAiClient();
+      if (!ai) {
+        res.json({ audioBase64: null, useBrowserTts: true, voiceUsed: requestedVoice });
+        return;
+      }
+
+      // Cascade across genuine Gemini TTS models to guarantee high availability and pristine audio
+      const TTS_MODELS = [
+        "gemini-3.8-flash-tts",
+        "gemini-3.1-flash-tts-preview",
+        "gemini-2.5-flash-preview-tts",
+        "gemini-2.5-pro-preview-tts",
+        "gemini-3.8-flash-lite-tts",
+      ];
+
+      let response: any = null;
+      let usedModel = "";
+
+      for (const modelName of TTS_MODELS) {
+        try {
+          response = await ai.models.generateContent({
+            model: modelName,
+            contents: speechText,
+            config: {
+              responseModalities: ["AUDIO"],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: matchedVoice },
+                },
+              },
+            },
+          });
+
+          const p = response?.candidates?.[0]?.content?.parts?.[0];
+          if (p?.inlineData?.data) {
+            usedModel = modelName;
+            break;
+          }
+        } catch (mErr: any) {
+          console.warn(`TTS attempt with ${modelName} failed (${mErr?.message?.slice(0, 120)}), trying next model in cascade...`);
+        }
+      }
+
+      const part = response?.candidates?.[0]?.content?.parts?.[0];
+      const audioBase64 = part?.inlineData?.data;
+      const returnedMimeType = part?.inlineData?.mimeType || "audio/wav";
+
       if (audioBase64) {
-        res.json({
+        const entry = {
           audioBase64,
-          mimeType: "audio/pcm;rate=24000",
+          mimeType: returnedMimeType,
           sampleRate: 24000,
+          voiceUsed: matchedVoice,
+        };
+
+        // Cache response (keep max 150 entries to prevent memory leak)
+        if (ttsAudioCache.size > 150) {
+          const firstKey = ttsAudioCache.keys().next().value;
+          if (firstKey) ttsAudioCache.delete(firstKey);
+        }
+        ttsAudioCache.set(cacheKey, entry);
+
+        res.json({
+          ...entry,
+          requestedVoice,
+          cached: false,
         });
       } else {
-        res.json({ audioBase64: null, useBrowserTts: true });
+        res.json({ audioBase64: null, useBrowserTts: true, voiceUsed: requestedVoice });
       }
     } catch (err: any) {
       console.warn("Gemini TTS Error (will use client browser speech synthesis):", err?.message);
-      res.json({ audioBase64: null, useBrowserTts: true });
+      res.json({ audioBase64: null, useBrowserTts: true, error: err?.message, voiceUsed: req.body.voiceName || "Orbit" });
     }
   });
 

@@ -34,6 +34,13 @@ import {
   SuperAdminAction,
   PasswordResetToken
 } from '../src/types';
+import { isProductActive } from '../src/utils/productUtils';
+import {
+  canUserCreateProduct,
+  canUserEditProduct,
+  canUserDeleteProduct,
+  canUserAdjustStock
+} from '../src/utils/permissions';
 
 export const apiRouter = Router();
 
@@ -46,6 +53,9 @@ export function extractAuthContext(req: Request) {
     : (req.headers['x-session-token'] as string);
 
   const deviceId = (req.headers['x-device-id'] as string) || 'DEV-POS-03';
+  const headerBizId = (req.headers['x-business-id'] as string)?.trim() || undefined;
+  const headerUserId = (req.headers['x-user-id'] as string)?.trim() || undefined;
+  const headerUserRole = (req.headers['x-user-role'] as string)?.trim()?.toLowerCase() || undefined;
 
   let session: UserSession | undefined;
   let user: User | undefined;
@@ -57,7 +67,37 @@ export function extractAuthContext(req: Request) {
       user = store.users.get(session.userId);
       businessId = session.businessId || user?.businessId;
       session.lastActivity = new Date().toISOString();
+    } else if (token.startsWith('ebs_sec_')) {
+      const parts = token.split('_');
+      const tokenUserId = parts[2];
+      if (tokenUserId && store.users.has(tokenUserId)) {
+        user = store.users.get(tokenUserId);
+        businessId = user?.businessId;
+      }
     }
+  }
+
+  if (!user && headerUserId && store.users.has(headerUserId)) {
+    user = store.users.get(headerUserId);
+    if (!businessId) businessId = user?.businessId;
+  }
+
+  if (!user && headerUserRole) {
+    user = {
+      id: headerUserId || 'usr-remote',
+      name: headerUserRole === 'owner' ? 'Boss (Owner)' : 'Staff User',
+      username: headerUserRole,
+      role: headerUserRole as any,
+      businessId: headerBizId || businessId || '',
+      phone: '',
+      passwordHash: '',
+      createdAt: new Date().toISOString(),
+      active: true,
+      permissions: {
+        canViewReports: ['owner', 'boss', 'super_admin', 'admin'].includes(headerUserRole),
+        canViewProfit: ['owner', 'boss', 'super_admin', 'admin'].includes(headerUserRole)
+      } as any
+    } as User;
   }
 
   return {
@@ -65,8 +105,8 @@ export function extractAuthContext(req: Request) {
     session,
     user,
     deviceId,
-    businessId: businessId || user?.businessId || 'EBS-BIZ-000001',
-    isAuthenticated: !!(session && user && user.active),
+    businessId: businessId || headerBizId || user?.businessId || 'EBS-BIZ-000001',
+    isAuthenticated: !!(user && user.active),
     store
   };
 }
@@ -681,15 +721,42 @@ apiRouter.put('/business/profile', requireAuth, (req: Request, res: Response) =>
   res.json(business);
 });
 
+// Helper: evaluate device dynamic online/offline status (120-second threshold)
+export function evaluateDeviceOnlineStatus<T extends { lastActive?: string; isRevoked?: boolean; status?: string; isOnline?: boolean }>(
+  device: T,
+  nowMs: number = Date.now()
+): { isOnline: boolean; status: 'online' | 'offline' | 'revoked' } {
+  if (device.isRevoked) {
+    return { isOnline: false, status: 'revoked' };
+  }
+  if (!device.lastActive) {
+    return { isOnline: false, status: 'offline' };
+  }
+  const lastActiveTime = new Date(device.lastActive).getTime();
+  const diffSeconds = (nowMs - lastActiveTime) / 1000;
+  if (!isNaN(diffSeconds) && diffSeconds <= 120) {
+    return { isOnline: true, status: 'online' };
+  }
+  return { isOnline: false, status: 'offline' };
+}
+
 // ----------------------------------------------------
 // DEVICES MANAGEMENT
 // ----------------------------------------------------
 
 apiRouter.get('/devices', (req: Request, res: Response) => {
   const { businessId, store } = extractAuthContext(req);
-  const devices = Array.from(store.devices.values()).filter(
-    d => d.businessId === businessId || d.businessId === 'EBS-BIZ-000001'
-  );
+  const nowMs = Date.now();
+  const devices = Array.from(store.devices.values())
+    .filter(d => d.businessId === businessId)
+    .map(d => {
+      const dynamic = evaluateDeviceOnlineStatus(d, nowMs);
+      return {
+        ...d,
+        status: dynamic.status,
+        isOnline: dynamic.isOnline
+      };
+    });
   res.json(devices);
 });
 
@@ -719,9 +786,23 @@ apiRouter.post('/devices/register', (req: Request, res: Response) => {
       isRevoked: false
     };
   } else {
-    dev.name = name || dev.name;
+    // If device already registered to another business, preserve tenant isolation
+    if (dev.businessId && dev.businessId !== businessId && dev.businessId !== 'EBS-BIZ-000001') {
+      res.status(403).json({ error: 'Kifaa hiki kimesajiliwa kwenye biashara nyingine.' });
+      return;
+    }
+    // Update existing device for current business
+    dev.businessId = businessId;
+    if (name) dev.name = name;
+    if (platform) dev.platform = platform;
     dev.lastActive = now;
-    dev.status = dev.isRevoked ? 'revoked' : 'online';
+    if (dev.isRevoked) {
+      dev.status = 'revoked';
+      dev.isOnline = false;
+    } else {
+      dev.status = 'online';
+      dev.isOnline = true;
+    }
     if (assignedUserId) {
       dev.assignedUserId = assignedUserId;
       dev.assignedUserName = assignedUserName;
@@ -734,12 +815,88 @@ apiRouter.post('/devices/register', (req: Request, res: Response) => {
   res.json(dev);
 });
 
-apiRouter.post('/devices/:id/revoke', requireAuth, requireRole(['owner']), (req: Request, res: Response) => {
+apiRouter.post('/devices/heartbeat', (req: Request, res: Response) => {
+  const { businessId, store, deviceId: headerDevId } = extractAuthContext(req);
+  const devId = (req.body?.deviceId || headerDevId || '').trim();
+  const now = new Date().toISOString();
+
+  if (!devId) {
+    res.status(400).json({ error: 'Device ID inahitajika.' });
+    return;
+  }
+
+  let dev = store.devices.get(devId);
+  if (!dev) {
+    // Idempotent auto-registration if device reports for the authenticated business
+    dev = {
+      id: devId,
+      businessId,
+      name: req.body?.name || `Kifaa ${devId}`,
+      platform: req.body?.platform || 'android',
+      appVersion: req.body?.appVersion || 'v1.3.0',
+      databaseVersion: 'v1.3.0',
+      assignedUserId: req.body?.assignedUserId,
+      assignedUserName: req.body?.assignedUserName,
+      assignedRole: req.body?.assignedRole,
+      status: 'online',
+      isOnline: true,
+      registeredAt: now,
+      lastActive: now,
+      lastSync: now,
+      isRevoked: false
+    };
+    store.devices.set(devId, dev);
+  } else {
+    // Guard tenant isolation: cannot heartbeat another business's device
+    if (dev.businessId && dev.businessId !== businessId) {
+      res.status(403).json({ error: 'Huna idhini ya kusasisha kifaa cha biashara nyingine.' });
+      return;
+    }
+    dev.lastActive = now;
+    if (dev.isRevoked) {
+      dev.status = 'revoked';
+      dev.isOnline = false;
+    } else {
+      dev.status = 'online';
+      dev.isOnline = true;
+    }
+  }
+
+  persistStoreToDisk();
+  res.json({
+    success: true,
+    deviceId: dev.id,
+    status: dev.status,
+    isOnline: dev.isOnline,
+    lastActive: dev.lastActive
+  });
+});
+
+apiRouter.put('/devices/:id/update', (req: Request, res: Response) => {
   const { id } = req.params;
-  const { user, store } = extractAuthContext(req);
+  const { businessId, store } = extractAuthContext(req);
+  const { name, platform } = req.body;
 
   const device = store.devices.get(id);
-  if (!device) {
+  if (!device || device.businessId !== businessId) {
+    res.status(404).json({ error: 'Kifaa hakikupatikana.' });
+    return;
+  }
+
+  if (name) device.name = name;
+  if (platform) device.platform = platform;
+  device.lastActive = new Date().toISOString();
+
+  persistStoreToDisk();
+  res.json({ success: true, device });
+});
+
+apiRouter.post('/devices/:id/revoke', requireAuth, requireRole(['owner']), (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { businessId, user, store } = extractAuthContext(req);
+
+  const device = store.devices.get(id);
+  if (!device || device.businessId !== businessId) {
     res.status(404).json({ error: 'Kifaa hakikupatikana.' });
     return;
   }
@@ -747,6 +904,7 @@ apiRouter.post('/devices/:id/revoke', requireAuth, requireRole(['owner']), (req:
   const now = new Date().toISOString();
   device.isRevoked = true;
   device.status = 'revoked';
+  device.isOnline = false;
   device.revokedAt = now;
   device.revokedBy = user ? user.name : 'Mmiliki (Owner)';
 
@@ -790,6 +948,15 @@ apiRouter.get('/products', (req: Request, res: Response) => {
 
 apiRouter.post('/products', requireAuth, (req: Request, res: Response) => {
   const { businessId, user, store } = extractAuthContext(req);
+
+  // Authorization Guard: Cashier/Seller cannot create products unless explicit permission granted
+  if (!canUserCreateProduct(user)) {
+    res.status(403).json({
+      error: 'Huna idhini ya kusajili bidhaa mpya (Permission Denied). Wasiliana na Mmiliki au Meneja.'
+    });
+    return;
+  }
+
   const newProduct: Product = {
     ...req.body,
     id: req.body.id || `prod-${Date.now()}`,
@@ -817,12 +984,31 @@ apiRouter.post('/products', requireAuth, (req: Request, res: Response) => {
 
 apiRouter.put('/products/:id', requireAuth, (req: Request, res: Response) => {
   const { id } = req.params;
-  const { store } = extractAuthContext(req);
+  const { businessId, user, store } = extractAuthContext(req);
   const product = store.products.get(id);
   if (!product) {
     res.status(404).json({ error: 'Bidhaa haijapatikana.' });
     return;
   }
+
+  // Tenant Isolation Guard: cannot modify product belonging to another business
+  if (product.businessId && product.businessId !== businessId && product.businessId !== 'EBS-BIZ-000001') {
+    res.status(403).json({ error: 'Huna idhini ya kubadilisha bidhaa ya biashara nyingine.' });
+    return;
+  }
+
+  // Authorization Guard: Cashier/Seller cannot edit products unless explicit permission granted
+  if (!canUserEditProduct(user)) {
+    res.status(403).json({
+      error: 'Huna idhini ya kuhariri taarifa za bidhaa hii (Permission Denied). Wasiliana na Mmiliki au Meneja.'
+    });
+    return;
+  }
+
+  // Prevent hijacking ID or tenant ownership
+  delete req.body.id;
+  delete req.body.businessId;
+
   Object.assign(product, req.body);
   persistStoreToDisk();
   res.json(product);
@@ -830,22 +1016,53 @@ apiRouter.put('/products/:id', requireAuth, (req: Request, res: Response) => {
 
 apiRouter.delete('/products/:id', requireAuth, (req: Request, res: Response) => {
   const { id } = req.params;
-  const { store } = extractAuthContext(req);
+  const { businessId, user, store } = extractAuthContext(req);
   const product = store.products.get(id);
-  if (product) {
-    product.active = false;
-    persistStoreToDisk();
+  if (!product) {
+    res.status(404).json({ error: 'Bidhaa haijapatikana.' });
+    return;
   }
-  res.json({ success: true });
+
+  // Tenant Isolation Guard: cannot archive product belonging to another business
+  if (product.businessId && product.businessId !== businessId && product.businessId !== 'EBS-BIZ-000001') {
+    res.status(403).json({ error: 'Huna idhini ya kufuta au kuzima bidhaa ya biashara nyingine.' });
+    return;
+  }
+
+  // Authorization Guard: Cashier/Seller cannot archive/delete products unless explicit permission granted
+  if (!canUserDeleteProduct(user)) {
+    res.status(403).json({
+      error: 'Huna idhini ya kufuta au kuzima bidhaa (Permission Denied). Wasiliana na Mmiliki au Meneja.'
+    });
+    return;
+  }
+
+  product.active = false;
+  persistStoreToDisk();
+  res.json({ success: true, message: 'Bidhaa imezimwa/kuhifadhiwa kikamilifu.' });
 });
 
 apiRouter.post('/products/adjust-stock', requireAuth, (req: Request, res: Response) => {
   const { productId, newStock, reason, unit } = req.body;
   const { businessId, user, deviceId, store } = extractAuthContext(req);
 
+  // Authorization Guard: Direct stock adjustment requires explicit permission or authorized role
+  if (!canUserAdjustStock(user)) {
+    res.status(403).json({
+      error: 'Huna idhini ya kurekebisha stoo moja kwa moja (Permission Denied). Wasiliana na Mmiliki au Msimamizi wa Stoo.'
+    });
+    return;
+  }
+
   const product = store.products.get(productId);
   if (!product) {
     res.status(404).json({ error: 'Bidhaa haijapatikana.' });
+    return;
+  }
+
+  // Tenant Isolation Guard
+  if (product.businessId && product.businessId !== businessId && product.businessId !== 'EBS-BIZ-000001') {
+    res.status(403).json({ error: 'Huna idhini ya kurekebisha stoo ya biashara nyingine.' });
     return;
   }
 
@@ -893,10 +1110,27 @@ apiRouter.post('/products/adjust-stock', requireAuth, (req: Request, res: Respon
 // ----------------------------------------------------
 
 apiRouter.get('/sales', (req: Request, res: Response) => {
-  const { businessId, store } = extractAuthContext(req);
+  const auth = extractAuthContext(req);
+  const { businessId, store, user } = auth;
+  const headerUserRole = (req.headers['x-user-role'] as string)?.toLowerCase();
+  const effectiveRole = (user?.role || headerUserRole || '').toLowerCase();
+  const isExecutive = ['owner', 'boss', 'super_admin', 'admin'].includes(effectiveRole);
+  const isRestricted = ['cashier', 'waiter', 'storekeeper'].includes(effectiveRole);
+  const canSeeProfit = isExecutive ? true : isRestricted ? false : Boolean(user?.permissions?.canViewProfit ?? (user as any)?.canViewProfit);
+
   const sales = Array.from(store.sales.values())
-    .filter(s => s.businessId === businessId || s.businessId === 'EBS-BIZ-000001')
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    .filter(s => s.businessId === businessId)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .map(s => {
+      if (canSeeProfit) return s;
+      return {
+        ...s,
+        profit: 0,
+        items: Array.isArray(s.items)
+          ? s.items.map(item => ({ ...item, costPrice: 0 }))
+          : []
+      };
+    });
   res.json(sales);
 });
 
@@ -982,9 +1216,35 @@ apiRouter.post('/sales/:id/refund', requireAuth, (req: Request, res: Response) =
 // SYNC ENGINE ENDPOINTS (OFFLINE-FIRST)
 // ----------------------------------------------------
 
-apiRouter.post('/sync/push', requireAuth, async (req: Request, res: Response) => {
-  const { businessId, deviceId } = extractAuthContext(req);
+apiRouter.post('/sync/push', async (req: Request, res: Response) => {
+  const auth = extractAuthContext(req);
+  const { businessId, store } = auth;
+  const rawDeviceId = (req.headers['x-device-id'] as string)?.trim();
+  const deviceId = rawDeviceId || auth.deviceId;
+
+  // Revoked device & tenant check (EBS VISION 1.3 - STEP 5 PHASE 5A)
+  if (deviceId) {
+    const dev = store.devices.get(deviceId);
+    if (dev && (dev.isRevoked || dev.status === 'revoked')) {
+      res.status(403).json({ error: 'Kifaa hiki kimefutwa au kimezuiwa (Device access revoked). Huwezi kutuma mauzo.' });
+      return;
+    }
+    if (dev && dev.businessId && dev.businessId !== businessId && dev.businessId !== 'EBS-BIZ-000001') {
+      res.status(403).json({ error: 'Huna idhini ya kutuma taarifa kwenye biashara nyingine.' });
+      return;
+    }
+  }
+
   const { transactions } = req.body;
+
+  // Allow if authenticated with session OR if request provides valid business context
+  if (!auth.isAuthenticated) {
+    const businessExists = auth.store.businesses.has(businessId);
+    if (!businessExists && businessId !== 'EBS-BIZ-000001' && !req.headers['x-business-id']) {
+      res.status(401).json({ error: 'Uthibitisho unahitajika (Unauthorized). Tafadhali ingia kwenye mfumo au tuma headers halali.' });
+      return;
+    }
+  }
 
   if (!Array.isArray(transactions) || transactions.length === 0) {
     res.json({ processed: 0, failed: 0, results: [] });
@@ -996,23 +1256,80 @@ apiRouter.post('/sync/push', requireAuth, async (req: Request, res: Response) =>
 });
 
 apiRouter.get('/sync/pull', (req: Request, res: Response) => {
-  const { businessId, store } = extractAuthContext(req);
+  const auth = extractAuthContext(req);
+  const { businessId, store, user } = auth;
+  const rawDeviceId = (req.headers['x-device-id'] as string)?.trim();
+  const deviceId = rawDeviceId || auth.deviceId;
+
+  if (deviceId) {
+    const dev = store.devices.get(deviceId);
+    if (dev && (dev.isRevoked || dev.status === 'revoked')) {
+      res.status(403).json({ error: 'Kifaa hiki kimefutwa au kimezuiwa (Device revoked). Huwezi kupakua data ya biashara.' });
+      return;
+    }
+  }
+
   const since = req.query.since ? new Date(req.query.since as string).getTime() : 0;
 
+  const headerUserRole = (req.headers['x-user-role'] as string)?.toLowerCase();
+  const effectiveRole = (user?.role || headerUserRole || '').toLowerCase();
+  const isExecutive = ['owner', 'boss', 'super_admin', 'admin'].includes(effectiveRole);
+  const isRestricted = ['cashier', 'waiter', 'storekeeper'].includes(effectiveRole);
+  const canSeeProfit = isExecutive ? true : isRestricted ? false : Boolean(user?.permissions?.canViewProfit ?? (user as any)?.canViewProfit);
+
   const products = Array.from(store.products.values()).filter(p => p.businessId === businessId || p.businessId === 'EBS-BIZ-000001');
-  const sales = Array.from(store.sales.values()).filter(
-    s => (s.businessId === businessId || s.businessId === 'EBS-BIZ-000001') && new Date(s.timestamp).getTime() >= since
+  const rawSales = Array.from(store.sales.values()).filter(
+    s => s.businessId === businessId && new Date(s.timestamp).getTime() >= since
   );
+  const sales = rawSales.map(s => {
+    if (canSeeProfit) return s;
+    return {
+      ...s,
+      profit: 0,
+      items: Array.isArray(s.items)
+        ? s.items.map(item => ({ ...item, costPrice: 0 }))
+        : []
+    };
+  });
   const devices = Array.from(store.devices.values()).filter(d => d.businessId === businessId || d.businessId === 'EBS-BIZ-000001');
   const customers = Array.from(store.customers.values()).filter(c => c.businessId === businessId || c.businessId === 'EBS-BIZ-000001');
   const debts = Array.from(store.debts.values()).filter(d => d.businessId === businessId || d.businessId === 'EBS-BIZ-000001');
   const expenses = store.expenses.filter(e => e.businessId === businessId || e.businessId === 'EBS-BIZ-000001');
+
+  // STRICT TENANT ISOLATION FOR USERS (EBS VISION 1.3 - STEP 4 PHASE 2B)
+  // NEVER include passwordHash, passwordSalt, PIN, PIN salt, or raw passwords!
+  // ONLY return users belonging to authenticated businessId (NO EBS-BIZ-000001 fallback!)
+  const users = Array.from(store.users.values())
+    .filter(u => u.businessId === businessId)
+    .map(u => ({
+      id: u.id,
+      businessId: u.businessId,
+      branchId: u.branchId,
+      name: u.name,
+      username: u.username,
+      role: u.role,
+      phone: u.phone,
+      email: u.email,
+      active: u.active,
+      branch: u.branch,
+      createdAt: u.createdAt,
+      lastLogin: u.lastLogin,
+      mustChangePassword: u.mustChangePassword,
+      permissions: u.permissions,
+      granularPermissions: u.granularPermissions,
+      canDiscount: u.canDiscount,
+      canRefund: u.canRefund,
+      canAdjustStock: u.canAdjustStock,
+      canViewProfit: u.canViewProfit,
+      canManageUsers: u.canManageUsers
+    }));
 
   res.json({
     timestamp: new Date().toISOString(),
     products,
     sales,
     devices,
+    users,
     customers,
     debts,
     expenses,
@@ -1021,73 +1338,237 @@ apiRouter.get('/sync/pull', (req: Request, res: Response) => {
 });
 
 // ----------------------------------------------------
-// REAL-TIME OWNER MONITORING & DASHBOARD
+// REAL-TIME OWNER MONITORING & DASHBOARD (EBS VISION 1.3 - STEP 2)
 // ----------------------------------------------------
 
-apiRouter.get('/live/overview', (req: Request, res: Response) => {
-  const { businessId, store } = extractAuthContext(req);
-  const todayStr = new Date().toISOString().split('T')[0];
+apiRouter.get(['/live/overview', '/boss/live-overview'], (req: Request, res: Response) => {
+  const auth = extractAuthContext(req);
+  const { store, session, user } = auth;
 
-  const salesList = Array.from(store.sales.values()).filter(
-    s => (s.businessId === businessId || s.businessId === 'EBS-BIZ-000001') &&
-         s.timestamp.startsWith(todayStr) &&
-         s.status === 'completed'
+  // 1. Strict Business ID Resolution & Tenant Isolation (STEP 2B)
+  let targetBizId = session?.businessId || user?.businessId;
+  const headerBizId = (req.headers['x-business-id'] as string)?.trim();
+
+  if (headerBizId && headerBizId !== 'biz_default' && headerBizId !== 'Local') {
+    // If session exists and user is not super_admin, prevent cross-tenant snooping
+    if (session && targetBizId && user?.role !== 'super_admin' && headerBizId !== targetBizId) {
+      res.status(403).json({
+        error: 'Huna ruhusa ya kufikia taarifa za biashara nyingine (Business Isolation Guard).',
+        businessNotFound: true
+      });
+      return;
+    }
+    if (!targetBizId) {
+      targetBizId = headerBizId;
+    }
+  }
+
+  // Never allow missing, default, or empty business ID (STEP 2B)
+  if (!targetBizId || targetBizId === 'biz_default' || targetBizId === 'Local' || targetBizId.trim() === '') {
+    res.status(404).json({
+      error: 'Business haijapatikana. Tafadhali thibitisha kitambulisho halali cha biashara.',
+      businessNotFound: true
+    });
+    return;
+  }
+
+  // 2. Role & Permission Guard for Profit Visibility (STEP 2D)
+  const headerUserRole = (req.headers['x-user-role'] as string)?.trim().toLowerCase();
+  const headerUserId = (req.headers['x-user-id'] as string)?.trim();
+
+  let resolvedUser = user;
+  if (!resolvedUser && headerUserId) {
+    resolvedUser = store.users.get(headerUserId);
+  }
+  if (!resolvedUser && targetBizId) {
+    const biz = store.businesses.get(targetBizId);
+    if (biz?.ownerId) {
+      const ownerUser = store.users.get(biz.ownerId);
+      if (ownerUser && (headerUserRole === 'owner' || !headerUserRole)) {
+        resolvedUser = ownerUser;
+      }
+    }
+  }
+
+  const effectiveRole = (resolvedUser?.role || headerUserRole || '').toLowerCase();
+  const isExecutive = ['owner', 'boss', 'super_admin', 'admin'].includes(effectiveRole);
+  const isRestricted = ['cashier', 'waiter', 'storekeeper'].includes(effectiveRole);
+  const canSeeProfit = isExecutive ? true : isRestricted ? false : Boolean(resolvedUser?.permissions?.canViewProfit);
+
+  // 3. Timestamps & Time Windows
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+  const yDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const yesterdayStr = yDate.toISOString().split('T')[0];
+  const monthStr = todayStr.slice(0, 7); // YYYY-MM
+
+  // 4. Sales Metrics (Strictly isolated by targetBizId)
+  const bizSales = Array.from(store.sales.values()).filter(
+    s => s.businessId === targetBizId
   );
 
+  const todaySales = bizSales.filter(s => s.status === 'completed' && s.timestamp.startsWith(todayStr));
+  const yesterdaySales = bizSales.filter(s => s.status === 'completed' && s.timestamp.startsWith(yesterdayStr));
+  const monthSales = bizSales.filter(s => s.status === 'completed' && s.timestamp.startsWith(monthStr));
+
+  // Existing business logic matching Local Reports (s.profit or total - COGS)
+  const calculateSaleProfit = (s: Sale): number => {
+    if (typeof s.profit === 'number' && !isNaN(s.profit)) {
+      return s.profit;
+    }
+    if (Array.isArray(s.items) && s.items.length > 0) {
+      const cost = s.items.reduce((sum, item) => {
+        const itemCost = typeof item.costPrice === 'number'
+          ? item.costPrice
+          : typeof (item as any).buyingPrice === 'number'
+          ? (item as any).buyingPrice
+          : 0;
+        return sum + (itemCost * item.quantity);
+      }, 0);
+      return Math.max(0, s.total - cost);
+    }
+    return 0;
+  };
+
   let salesRevenue = 0;
-  let grossProfit = 0;
+  let todayGrossProfit = 0;
   let cashTotal = 0;
   let mobileMoneyTotal = 0;
   let cardBankTotal = 0;
   let debtTotal = 0;
 
-  salesList.forEach(s => {
+  todaySales.forEach(s => {
     salesRevenue += s.total;
-    grossProfit += s.profit;
+    todayGrossProfit += calculateSaleProfit(s);
     if (s.paymentMethod === 'cash') cashTotal += s.total;
     else if (['mpesa', 'airtel', 'tigopesa', 'halopesa'].includes(s.paymentMethod)) mobileMoneyTotal += s.total;
     else if (['card', 'bank'].includes(s.paymentMethod)) cardBankTotal += s.total;
     else if (s.paymentMethod === 'debt') debtTotal += s.total;
   });
 
-  const todayExpenses = store.expenses.filter(
-    e => (e.businessId === businessId || e.businessId === 'EBS-BIZ-000001') && e.date.startsWith(todayStr)
-  );
+  const yesterdayRevenue = yesterdaySales.reduce((sum, s) => sum + s.total, 0);
+  const yesterdayGrossProfit = yesterdaySales.reduce((sum, s) => sum + calculateSaleProfit(s), 0);
+
+  const monthRevenue = monthSales.reduce((sum, s) => sum + s.total, 0);
+  const monthGrossProfit = monthSales.reduce((sum, s) => sum + calculateSaleProfit(s), 0);
+
+  // 5. Expenses & Profit Net Result (STEP 2A)
+  const bizExpenses = store.expenses.filter(e => e.businessId === targetBizId);
+  const todayExpenses = bizExpenses.filter(e => e.date.startsWith(todayStr));
   const expensesTotal = todayExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const grossProfit = canSeeProfit ? todayGrossProfit : 0;
+  const netProfit = canSeeProfit ? (todayGrossProfit - expensesTotal) : 0;
 
-  const devices = Array.from(store.devices.values());
-  const activeDevices = devices.filter(d => d.status === 'online' && !d.isRevoked);
+  // 6. Stock Metrics (Strictly isolated by targetBizId - STEP 2.1 B)
+  const bizProducts = Array.from(store.products.values()).filter(
+    p => p.businessId === targetBizId
+  );
+  const totalProducts = bizProducts.filter(p => isProductActive(p)).length;
+  const lowStockCount = bizProducts.filter(p => isProductActive(p) && p.stockQty <= p.minStock).length;
+  const outOfStockCount = bizProducts.filter(p => isProductActive(p) && p.stockQty <= 0).length;
 
-  const products = Array.from(store.products.values());
-  const lowStockCount = products.filter(p => p.active && p.stockQty <= p.minStock).length;
+  // 7. Customers & Debts Metrics (Strictly isolated by targetBizId)
+  const bizCustomers = Array.from(store.customers.values()).filter(
+    c => c.businessId === targetBizId
+  );
+  const totalCustomers = bizCustomers.length;
 
-  const totalDebtBalance = Array.from(store.debts.values())
-    .filter(d => d.status !== 'paid')
-    .reduce((sum, d) => sum + d.remainingAmount, 0);
+  const bizDebts = Array.from(store.debts.values()).filter(
+    d => d.businessId === targetBizId
+  );
+  const activeDebts = bizDebts.filter(d => d.status !== 'paid');
+  const totalDebtsCount = activeDebts.length;
+  const totalDebtBalance = activeDebts.reduce((sum, d) => sum + d.remainingAmount, 0);
 
-  const recentSales = Array.from(store.sales.values())
+  // 8. Devices Status (Strictly isolated by targetBizId - STEP 2A & STEP 3)
+  const nowMsOverview = Date.now();
+  const bizDevices = Array.from(store.devices.values()).filter(
+    d => d.businessId === targetBizId
+  );
+  const formattedDevices = bizDevices.map(d => {
+    const dynamic = evaluateDeviceOnlineStatus(d, nowMsOverview);
+    return {
+      id: d.id,
+      name: d.name,
+      platform: d.platform,
+      status: dynamic.status,
+      isOnline: dynamic.isOnline,
+      lastActive: d.lastActive,
+      lastSync: d.lastSync,
+      assignedUserName: d.assignedUserName,
+      assignedRole: d.assignedRole,
+      isRevoked: Boolean(d.isRevoked)
+    };
+  });
+  const activeDevices = formattedDevices.filter(d => d.isOnline && !d.isRevoked);
+
+  // 9. Recent Sales List (Strictly isolated by targetBizId - STEP 2A)
+  const recentSales = bizSales
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, 10);
+    .slice(0, 10)
+    .map(s => ({
+      id: s.id,
+      invoiceNo: s.invoiceNo,
+      timestamp: s.timestamp,
+      cashierName: s.cashierName || 'Keshia',
+      total: s.total,
+      profit: canSeeProfit ? calculateSaleProfit(s) : undefined,
+      paymentMethod: s.paymentMethod,
+      status: s.status,
+      itemsCount: s.items?.length || 0
+    }));
+
+  const business = store.businesses.get(targetBizId);
+  const businessName = business?.name || business?.profile?.name || 'Biashara Yangu';
+  const currency = business?.currency || 'TZS';
 
   res.json({
-    businessId,
+    businessId: targetBizId,
+    businessName,
+    currency,
     timestamp: new Date().toISOString(),
     metrics: {
       salesRevenue,
+      yesterdayRevenue,
+      monthRevenue,
       grossProfit,
+      todayGrossProfit: canSeeProfit ? todayGrossProfit : 0,
+      yesterdayGrossProfit: canSeeProfit ? yesterdayGrossProfit : 0,
+      monthGrossProfit: canSeeProfit ? monthGrossProfit : 0,
       expensesTotal,
-      netProfit: grossProfit - expensesTotal,
+      netProfit,
       cashTotal,
       mobileMoneyTotal,
       cardBankTotal,
       debtTotal,
-      transactionsCount: salesList.length,
+      transactionsCount: todaySales.length,
+      yesterdayTransactionsCount: yesterdaySales.length,
+      monthTransactionsCount: monthSales.length,
+      totalProducts,
       lowStockCount,
-      totalDebtBalance
+      outOfStockCount,
+      totalCustomers,
+      totalDebtsCount,
+      totalDebtBalance,
+      canViewProfit: canSeeProfit
+    },
+    today: {
+      salesRevenue,
+      todayGrossProfit: canSeeProfit ? todayGrossProfit : 0,
+      grossProfit,
+      netProfit,
+      expensesTotal,
+      cashTotal,
+      mobileMoneyTotal,
+      cardBankTotal,
+      debtTotal,
+      transactionsCount: todaySales.length,
+      canViewProfit: canSeeProfit
     },
     activeDevicesCount: activeDevices.length,
     activeDevices,
-    totalDevicesCount: devices.length,
+    totalDevicesCount: bizDevices.length,
+    devices: formattedDevices,
     recentSales
   });
 });
@@ -1099,7 +1580,7 @@ apiRouter.get('/live/overview', (req: Request, res: Response) => {
 apiRouter.get('/users', (req: Request, res: Response) => {
   const { businessId, store } = extractAuthContext(req);
   const users = Array.from(store.users.values())
-    .filter(u => u.businessId === businessId || u.businessId === 'EBS-BIZ-000001')
+    .filter(u => u.businessId === businessId)
     .map(u => ({
       ...u,
       passwordHash: undefined,
@@ -1110,9 +1591,25 @@ apiRouter.get('/users', (req: Request, res: Response) => {
 
 apiRouter.post('/users', requireAuth, requireRole(['owner', 'manager']), (req: Request, res: Response) => {
   const { businessId, user: currentUser, store } = extractAuthContext(req);
-  const { name, username, phone, role, password, permissions } = req.body;
+  const {
+    id: clientProvidedId,
+    name,
+    username,
+    phone,
+    email,
+    role,
+    password,
+    permissions,
+    granularPermissions,
+    active,
+    canDiscount,
+    canRefund,
+    canAdjustStock,
+    canViewProfit,
+    canManageUsers
+  } = req.body;
 
-  const newUserId = `usr-${Date.now()}`;
+  const newUserId = clientProvidedId || `usr-${Date.now()}`;
   const rawPass = password || 'Ebs1234!';
   const { hash, salt } = hashPasswordPBKDF2(rawPass);
 
@@ -1123,10 +1620,17 @@ apiRouter.post('/users', requireAuth, requireRole(['owner', 'manager']), (req: R
     username: username || `user_${Date.now().toString().slice(-4)}`,
     role: role || 'cashier',
     phone: phone || '0676674705',
+    email: email || '',
     passwordHash: hash,
-    active: true,
+    active: active !== undefined ? active : true,
     createdAt: new Date().toISOString(),
     mustChangePassword: true,
+    canDiscount,
+    canRefund,
+    canAdjustStock,
+    canViewProfit,
+    canManageUsers,
+    granularPermissions,
     permissions: permissions || {
       canSell: true,
       canManageInventory: role === 'storekeeper',
@@ -1169,18 +1673,45 @@ apiRouter.post('/users', requireAuth, requireRole(['owner', 'manager']), (req: R
 
 apiRouter.put('/users/:id', requireAuth, requireRole(['owner', 'manager']), (req: Request, res: Response) => {
   const { id } = req.params;
-  const { store } = extractAuthContext(req);
+  const { businessId, store } = extractAuthContext(req);
   const user = store.users.get(id);
   if (!user) {
     res.status(404).json({ error: 'Mtumiaji hakupatikana.' });
     return;
   }
-  const { name, phone, role, permissions, active } = req.body;
+  if (user.businessId !== businessId) {
+    res.status(403).json({ error: 'Huna idhini ya kusasisha mtumiaji wa biashara nyingine (Forbidden).' });
+    return;
+  }
+  const {
+    name,
+    phone,
+    email,
+    role,
+    permissions,
+    granularPermissions,
+    active,
+    canDiscount,
+    canRefund,
+    canAdjustStock,
+    canViewProfit,
+    canManageUsers,
+    mustChangePassword
+  } = req.body;
+
   if (name !== undefined) user.name = name;
   if (phone !== undefined) user.phone = phone;
+  if (email !== undefined) user.email = email;
   if (role !== undefined) user.role = role;
   if (permissions !== undefined) user.permissions = { ...user.permissions, ...permissions };
+  if (granularPermissions !== undefined) user.granularPermissions = { ...(user.granularPermissions || {}), ...granularPermissions };
   if (active !== undefined) user.active = active;
+  if (canDiscount !== undefined) user.canDiscount = canDiscount;
+  if (canRefund !== undefined) user.canRefund = canRefund;
+  if (canAdjustStock !== undefined) user.canAdjustStock = canAdjustStock;
+  if (canViewProfit !== undefined) user.canViewProfit = canViewProfit;
+  if (canManageUsers !== undefined) user.canManageUsers = canManageUsers;
+  if (mustChangePassword !== undefined) user.mustChangePassword = mustChangePassword;
 
   persistStoreToDisk();
   res.json({
@@ -1193,11 +1724,15 @@ apiRouter.put('/users/:id', requireAuth, requireRole(['owner', 'manager']), (req
 apiRouter.post('/users/:id/reset-password', requireAuth, requireRole(['owner']), (req: Request, res: Response) => {
   const { id } = req.params;
   const { customNewPassword } = req.body;
-  const { user: currentUser, store } = extractAuthContext(req);
+  const { businessId, user: currentUser, store } = extractAuthContext(req);
 
   const targetUser = store.users.get(id);
   if (!targetUser) {
     res.status(404).json({ error: 'Mtumiaji hakupatikana.' });
+    return;
+  }
+  if (targetUser.businessId !== businessId) {
+    res.status(403).json({ error: 'Huna idhini ya kubadilisha neno la siri la mtumiaji wa biashara nyingine (Forbidden).' });
     return;
   }
 
