@@ -13,7 +13,8 @@ import {
   verifyUserPassword,
   hashPasswordPBKDF2,
   generateSecureSessionToken,
-  validatePasswordStrength
+  validatePasswordStrength,
+  matchPhoneNumbers
 } from './security';
 import {
   User,
@@ -147,11 +148,23 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
   }
 
   const cleanUsername = String(username).trim();
-  // Lookup user by username or phone
-  const user = Array.from(store.users.values()).find(
-    u => u.username.toLowerCase() === cleanUsername.toLowerCase() ||
-         u.phone.replace(/\s+/g, '') === cleanUsername.replace(/\s+/g, '')
-  );
+  // Safe, normalized user lookup by username or phone (null-safe, prevents partial collisions)
+  const user = Array.from(store.users.values()).find(u => {
+    if (!u) return false;
+    // 1. Case-insensitive exact match on username
+    if (u.username && typeof u.username === 'string') {
+      if (u.username.toLowerCase() === cleanUsername.toLowerCase()) {
+        return true;
+      }
+    }
+    // 2. Safe Tanzanian phone matching (handles +255 and 0 prefix, prevents partial collisions)
+    if (u.phone && typeof u.phone === 'string') {
+      if (matchPhoneNumbers(u.phone, cleanUsername)) {
+        return true;
+      }
+    }
+    return false;
+  });
 
   if (!user) {
     res.status(401).json({ error: 'Jina la mtumiaji au neno la siri si sahihi.' });
@@ -365,11 +378,13 @@ apiRouter.post('/auth/forgot-password', (req: Request, res: Response) => {
   const clean = String(identifier).trim().toLowerCase();
   const cleanDigits = clean.replace(/\D/g, '');
 
-  const user = Array.from(store.users.values()).find(
-    u => u.username.toLowerCase() === clean ||
-         (u.email && u.email.toLowerCase() === clean) ||
-         (cleanDigits.length >= 7 && u.phone.replace(/\D/g, '').endsWith(cleanDigits.slice(-7)))
-  );
+  const user = Array.from(store.users.values()).find(u => {
+    if (!u) return false;
+    if (u.username && typeof u.username === 'string' && u.username.toLowerCase() === clean) return true;
+    if (u.email && typeof u.email === 'string' && u.email.toLowerCase() === clean) return true;
+    if (u.phone && typeof u.phone === 'string' && matchPhoneNumbers(u.phone, clean)) return true;
+    return false;
+  });
 
   if (!user) {
     res.json({

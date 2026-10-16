@@ -22,36 +22,133 @@ export function hashPasswordPBKDF2(password: string, customSalt?: string): { has
 }
 
 /**
- * Secure constant-time password verification using PBKDF2 with unique per-user salt
+ * Safe Tanzanian phone number normalizer:
+ * Formats valid mobile numbers into canonical E.164 without plus: 255XXXXXXXXX (12 digits)
+ * Examples:
+ * - '0754111222' -> '255754111222'
+ * - '+255 754 111 222' -> '255754111222'
+ * - '255754111222' -> '255754111222'
+ * - '0625674705' -> '255625674705'
+ * Null-safe; ignores empty, null, or non-numeric inputs.
+ */
+export function normalizeTanzanianPhone(input?: string | null): string {
+  if (!input || typeof input !== 'string') return '';
+  const digits = input.replace(/\D/g, '');
+  if (!digits) return '';
+
+  if (digits.startsWith('255') && digits.length === 12) {
+    return digits;
+  }
+  if (digits.startsWith('0') && digits.length === 10) {
+    return '255' + digits.slice(1);
+  }
+  if (digits.length === 9 && (digits.startsWith('6') || digits.startsWith('7'))) {
+    return '255' + digits;
+  }
+  return digits;
+}
+
+/**
+ * Compare two phone numbers safely without ambiguous substring matching.
+ * Requires both numbers to be valid non-empty phone strings that resolve
+ * to the exact same canonical normalized phone number.
+ */
+export function matchPhoneNumbers(phoneA?: string | null, phoneB?: string | null): boolean {
+  if (!phoneA || !phoneB || typeof phoneA !== 'string' || typeof phoneB !== 'string') {
+    return false;
+  }
+  const normA = normalizeTanzanianPhone(phoneA);
+  const normB = normalizeTanzanianPhone(phoneB);
+  if (!normA || !normB) return false;
+
+  // Both must have at least 9 digits and be strictly equal
+  if (normA.length >= 9 && normB.length >= 9 && normA === normB) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Secure constant-time password verification supporting both modern PBKDF2
+ * and legacy SHA-256 ('ebs_tz_salt_2026' from src/utils/security.ts: hashPassword).
+ * Flags legacy passwords for automatic rehash upon successful login.
  */
 export function verifyUserPassword(
   providedPassword: string,
   storedHash: string,
   storedSalt?: string
 ): { isValid: boolean; needsRehash: boolean } {
-  if (!providedPassword || !storedHash) {
+  if (
+    !providedPassword ||
+    !storedHash ||
+    typeof providedPassword !== 'string' ||
+    typeof storedHash !== 'string'
+  ) {
     return { isValid: false, needsRehash: false };
   }
 
-  // 1. Verify with PBKDF2 and stored salt
-  if (storedSalt) {
+  const cleanStoredHash = storedHash.trim();
+  const cleanSalt = storedSalt && typeof storedSalt === 'string' ? storedSalt.trim() : undefined;
+
+  if (!cleanStoredHash) {
+    return { isValid: false, needsRehash: false };
+  }
+
+  // 1. Verify with PBKDF2 and stored salt (100,000 iterations, 64-byte keylen = 128 hex chars)
+  if (cleanSalt) {
     try {
-      const computedHash = crypto.pbkdf2Sync(
-        providedPassword,
-        storedSalt,
-        PBKDF2_ITERATIONS,
-        PBKDF2_KEYLEN,
-        PBKDF2_DIGEST
-      ).toString('hex');
+      const computedHash = crypto
+        .pbkdf2Sync(providedPassword, cleanSalt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST)
+        .toString('hex');
 
       const bufA = Buffer.from(computedHash, 'hex');
-      const bufB = Buffer.from(storedHash, 'hex');
+      const bufB = Buffer.from(cleanStoredHash, 'hex');
 
-      if (bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB)) {
+      if (bufA.length === bufB.length && bufA.length === PBKDF2_KEYLEN && crypto.timingSafeEqual(bufA, bufB)) {
         return { isValid: true, needsRehash: false };
       }
     } catch {
-      return { isValid: false, needsRehash: false };
+      // Continue to test legacy hash
+    }
+  }
+
+  // 2. Verify with legacy SHA-256 hash (exact formula from src/utils/security.ts: hashPassword)
+  // Formula: SHA-256("${salt}:${password}")
+  const candidateSalts: string[] = [];
+  if (cleanSalt && cleanSalt !== LEGACY_SALT) {
+    candidateSalts.push(cleanSalt);
+  }
+  candidateSalts.push(LEGACY_SALT);
+
+  for (const salt of candidateSalts) {
+    try {
+      const computedSha256 = crypto
+        .createHash('sha256')
+        .update(`${salt}:${providedPassword}`)
+        .digest('hex');
+
+      const bufA = Buffer.from(computedSha256, 'hex');
+      const bufB = Buffer.from(cleanStoredHash, 'hex');
+
+      if (bufA.length === bufB.length && bufA.length === 32 && crypto.timingSafeEqual(bufA, bufB)) {
+        // Matched legacy SHA-256; flag for rehash to modern PBKDF2
+        return { isValid: true, needsRehash: true };
+      }
+    } catch {
+      // Continue to next candidate
+    }
+  }
+
+  // 3. Constant-time check if provided password was already a direct 64-char SHA-256 hex hash
+  if (cleanStoredHash.length === 64 && providedPassword.trim().length === 64) {
+    try {
+      const bufA = Buffer.from(providedPassword.trim(), 'hex');
+      const bufB = Buffer.from(cleanStoredHash, 'hex');
+      if (bufA.length === bufB.length && bufA.length === 32 && crypto.timingSafeEqual(bufA, bufB)) {
+        return { isValid: true, needsRehash: true };
+      }
+    } catch {
+      // Ignore
     }
   }
 
